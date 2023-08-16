@@ -721,7 +721,7 @@ text_prop_position(
 
 	// add 1 for NUL, 2 for when '…' is used
 	if (n_attr != NULL)
-	    l = alloc(n_used + before + after + padding + 3);
+	    l = alloc(n_used + before + after + (padding > 0 ? padding : 0) + 3);
 	if (n_attr == NULL || l != NULL)
 	{
 	    int off = 0;
@@ -801,7 +801,7 @@ text_prop_position(
 
 		// n_attr_skip will not be decremented before draw_state is
 		// WL_LINE
-		*n_attr_skip = before + padding;
+		*n_attr_skip = before + (padding > 0 ? padding : 0);
 	    }
 	}
     }
@@ -1829,10 +1829,10 @@ win_line(
 
     win_line_start(wp, &wlv, FALSE);
 
+    char_u	*prev_ptr = ptr;
     // Repeat for the whole displayed line.
     for (;;)
     {
-	char_u	*prev_ptr = ptr;
 #if defined(FEAT_CONCEAL) || defined(FEAT_SEARCH_EXTRA)
 	int	has_match_conc = 0;	// match wants to conceal
 #endif
@@ -2261,9 +2261,9 @@ win_line(
 	    }
 #endif
 
-#ifdef FEAT_SEARCH_EXTRA
 	    if (wlv.n_extra == 0)
 	    {
+#ifdef FEAT_SEARCH_EXTRA
 		// Check for start/end of 'hlsearch' and other matches.
 		// After end, check for start/end of next match.
 		// When another match, have to check for start again.
@@ -2273,14 +2273,15 @@ win_line(
 				      &match_conc, did_line_attr, lcs_eol_one,
 				      &on_last_col);
 		ptr = line + v;  // "line" may have been changed
-		prev_ptr = ptr;
 
 		// Do not allow a conceal over EOL otherwise EOL will be missed
 		// and bad things happen.
 		if (*ptr == NUL)
 		    has_match_conc = 0;
-	    }
 #endif
+
+		prev_ptr = ptr;
+	    }
 
 #ifdef FEAT_DIFF
 	    if (wlv.diff_hlf != (hlf_T)0)
