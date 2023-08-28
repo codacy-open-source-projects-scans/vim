@@ -654,7 +654,7 @@ popup_show_curline(win_T *wp)
 	    wp->w_topline = wp->w_buffer->b_ml.ml_line_count;
 	while (wp->w_topline < wp->w_cursor.lnum
 		&& wp->w_topline < wp->w_buffer->b_ml.ml_line_count
-		&& plines_m_win(wp, wp->w_topline, wp->w_cursor.lnum)
+		&& plines_m_win(wp, wp->w_topline, wp->w_cursor.lnum, TRUE)
 								> wp->w_height)
 	    ++wp->w_topline;
     }
@@ -817,7 +817,7 @@ apply_general_options(win_T *wp, dict_T *dict)
     }
 
     if (set_padding_border(dict, wp->w_popup_padding, "padding", 999) == FAIL ||
-        set_padding_border(dict, wp->w_popup_border, "border", 1) == FAIL)
+	set_padding_border(dict, wp->w_popup_border, "border", 1) == FAIL)
 	return FAIL;
 
     di = dict_find(dict, (char_u *)"borderhighlight", -1);

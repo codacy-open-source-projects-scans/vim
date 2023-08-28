@@ -209,9 +209,6 @@ au BufNewFile,BufRead *.bi,*.bm			call dist#ft#FTbas()
 " Bass
 au BufNewFile,BufRead *.bass			setf bass
 
-" Visual Basic Script (close to Visual Basic) or Visual Basic .NET
-au BufNewFile,BufRead *.vb,*.vbs,*.dsm,*.ctl	setf vb
-
 " IBasic file (similar to QBasic)
 au BufNewFile,BufRead *.iba,*.ibi		setf ibasic
 
@@ -245,7 +242,7 @@ au BufNewFile,BufRead *.bib			setf bib
 au BufNewFile,BufRead *.bst			setf bst
 
 " Bicep
-au BufNewFile,BufRead *.bicep			setf bicep
+au BufNewFile,BufRead *.bicep,*.bicepparam			setf bicep
 
 " BIND configuration
 " sudoedit uses namedXXXX.conf
@@ -724,16 +721,19 @@ au BufNewFile,BufRead auto.master		setf conf
 au BufNewFile,BufRead *.mas,*.master		setf master
 
 " Forth
-au BufNewFile,BufRead *.ft,*.fth		setf forth
+au BufNewFile,BufRead *.ft,*.fth,*.4th		setf forth
 
 " Reva Forth
 au BufNewFile,BufRead *.frt			setf reva
 
 " Fortran
 if has("fname_case")
-  au BufNewFile,BufRead *.F,*.FOR,*.FPP,*.FTN,*.F77,*.F90,*.F95,*.F03,*.F08	 setf fortran
+  au BufNewFile,BufRead *.F,*.FOR,*.FPP,*.FTN,*.F77,*.F90,*.F95,*.F03,*.F08	setf fortran
 endif
-au BufNewFile,BufRead   *.f,*.for,*.fortran,*.fpp,*.ftn,*.f77,*.f90,*.f95,*.f03,*.f08  setf fortran
+au BufNewFile,BufRead *.for,*.fortran,*.fpp,*.ftn,*.f77,*.f90,*.f95,*.f03,*.f08	setf fortran
+
+" Fortran or Forth
+au BufNewFile,BufRead *.f			call dist#ft#FTf()
 
 " Framescript
 au BufNewFile,BufRead *.fsl			setf framescript
@@ -1407,6 +1407,9 @@ au BufNewFile,BufRead *.ninja			setf ninja
 " Nix
 au BufRead,BufNewFile *.nix			setf nix
 
+" Norg
+au BufNewFile,BufRead *.norg		setf norg
+
 " NPM RC file
 au BufNewFile,BufRead npmrc,.npmrc		setf dosini
 
@@ -1707,6 +1710,9 @@ au BufNewFile,BufRead *.ptl,*.pyi,SConstruct		   setf python
 
 " QL
 au BufRead,BufNewFile *.ql,*.qll		setf ql
+
+" QML
+au BufRead,BufNewFile *.qml,*.qbs			setf qml
 
 " QMLdir
 au BufRead,BufNewFile qmldir			setf qmldir
@@ -2370,7 +2376,7 @@ au BufNewFile,BufRead *.tape			setf vhs
 au BufNewFile,BufRead *.hdl,*.vhd,*.vhdl,*.vbe,*.vst,*.vho  setf vhdl
 
 " Vim script
-au BufNewFile,BufRead *.vim,*.vba,.exrc,_exrc	setf vim
+au BufNewFile,BufRead *.vim,.exrc,_exrc		setf vim
 
 " Viminfo file
 au BufNewFile,BufRead .viminfo,_viminfo		setf viminfo
@@ -2383,10 +2389,31 @@ au BufRead,BufNewFile *.hw,*.module,*.pkg
 	\   setf virata |
 	\ endif
 
-" Visual Basic (also uses *.bas) or FORM
+" Visual Basic (see also *.bas *.cls)
+
+" Visual Basic or FORM
 au BufNewFile,BufRead *.frm			call dist#ft#FTfrm()
 
-" SaxBasic is close to Visual Basic
+" Visual Basic
+" user control, ActiveX document form, active designer, property page
+au BufNewFile,BufRead *.ctl,*.dob,*.dsr,*.pag	setf vb
+
+" Visual Basic or Vimball Archiver
+au BufNewFile,BufRead *.vba			call dist#ft#FTvba()
+
+" Visual Basic Project
+au BufNewFile,BufRead *.vbp			setf dosini
+
+" VBScript (close to Visual Basic)
+au BufNewFile,BufRead *.vbs			setf vb
+
+" Visual Basic .NET (close to Visual Basic)
+au BufNewFile,BufRead *.vb			setf vb
+
+" Visual Studio Macro
+au BufNewFile,BufRead *.dsm			setf vb
+
+" SaxBasic (close to Visual Basic)
 au BufNewFile,BufRead *.sba			setf vb
 
 " Vgrindefs file

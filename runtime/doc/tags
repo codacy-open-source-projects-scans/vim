@@ -1434,6 +1434,7 @@ $quote	eval.txt	/*$quote*
 +python/dyn	various.txt	/*+python\/dyn*
 +python3	various.txt	/*+python3*
 +python3/dyn	various.txt	/*+python3\/dyn*
++python3/dyn-stable	various.txt	/*+python3\/dyn-stable*
 +quickfix	various.txt	/*+quickfix*
 +reltime	various.txt	/*+reltime*
 +rightleft	various.txt	/*+rightleft*
@@ -2084,10 +2085,12 @@ $quote	eval.txt	/*$quote*
 :Continue	terminal.txt	/*:Continue*
 :DiffOrig	diff.txt	/*:DiffOrig*
 :DoMatchParen	pi_paren.txt	/*:DoMatchParen*
+:Down	terminal.txt	/*:Down*
 :Evaluate	terminal.txt	/*:Evaluate*
 :Explore	pi_netrw.txt	/*:Explore*
 :Finish	terminal.txt	/*:Finish*
 :FixBeginfigs	ft_mp.txt	/*:FixBeginfigs*
+:Frame	terminal.txt	/*:Frame*
 :GLVS	pi_getscript.txt	/*:GLVS*
 :Gdb	terminal.txt	/*:Gdb*
 :GetLatestVimScripts_dat	pi_getscript.txt	/*:GetLatestVimScripts_dat*
@@ -2140,7 +2143,9 @@ $quote	eval.txt	/*$quote*
 :TermdebugCommand	terminal.txt	/*:TermdebugCommand*
 :Texplore	pi_netrw.txt	/*:Texplore*
 :Until	terminal.txt	/*:Until*
+:Up	terminal.txt	/*:Up*
 :UseVimball	pi_vimball.txt	/*:UseVimball*
+:Var	terminal.txt	/*:Var*
 :Vexplore	pi_netrw.txt	/*:Vexplore*
 :VimballList	pi_vimball.txt	/*:VimballList*
 :Vimuntar	pi_tar.txt	/*:Vimuntar*
@@ -4440,6 +4445,12 @@ E137	starting.txt	/*E137*
 E138	starting.txt	/*E138*
 E139	message.txt	/*E139*
 E140	message.txt	/*E140*
+E1400	builtin.txt	/*E1400*
+E1401	builtin.txt	/*E1401*
+E1402	builtin.txt	/*E1402*
+E1403	builtin.txt	/*E1403*
+E1404	builtin.txt	/*E1404*
+E1405	builtin.txt	/*E1405*
 E141	message.txt	/*E141*
 E142	message.txt	/*E142*
 E143	autocmd.txt	/*E143*
@@ -6754,6 +6765,7 @@ err_mode	channel.txt	/*err_mode*
 err_modifiable	channel.txt	/*err_modifiable*
 err_msg	channel.txt	/*err_msg*
 err_name	channel.txt	/*err_name*
+err_teapot()	builtin.txt	/*err_teapot()*
 err_timeout	channel.txt	/*err_timeout*
 errmsg-variable	eval.txt	/*errmsg-variable*
 error-file-format	quickfix.txt	/*error-file-format*
@@ -7535,6 +7547,7 @@ g<LeftMouse>	tagsrch.txt	/*g<LeftMouse>*
 g<RightMouse>	tagsrch.txt	/*g<RightMouse>*
 g<Tab>	tabpage.txt	/*g<Tab>*
 g<Up>	motion.txt	/*g<Up>*
+g<kEnd>	motion.txt	/*g<kEnd>*
 g?	change.txt	/*g?*
 g??	change.txt	/*g??*
 g?g?	change.txt	/*g?g?*
@@ -8156,6 +8169,7 @@ insertmode-variable	eval.txt	/*insertmode-variable*
 install	usr_90.txt	/*install*
 install-home	usr_90.txt	/*install-home*
 install-registry	gui_w32.txt	/*install-registry*
+instanceof()	builtin.txt	/*instanceof()*
 intel-itanium	syntax.txt	/*intel-itanium*
 intellimouse-wheel-problems	gui_w32.txt	/*intellimouse-wheel-problems*
 interactive-functions	usr_41.txt	/*interactive-functions*
@@ -9207,6 +9221,7 @@ print-intro	print.txt	/*print-intro*
 print-options	print.txt	/*print-options*
 print.txt	print.txt	/*print.txt*
 printf()	builtin.txt	/*printf()*
+printf-$	builtin.txt	/*printf-$*
 printf-%	builtin.txt	/*printf-%*
 printf-B	builtin.txt	/*printf-B*
 printf-E	builtin.txt	/*printf-E*
@@ -9294,6 +9309,8 @@ python-path_hook	if_pyth.txt	/*python-path_hook*
 python-pyeval	if_pyth.txt	/*python-pyeval*
 python-range	if_pyth.txt	/*python-range*
 python-special-path	if_pyth.txt	/*python-special-path*
+python-stable	if_pyth.txt	/*python-stable*
+python-stable-abi	if_pyth.txt	/*python-stable-abi*
 python-strwidth	if_pyth.txt	/*python-strwidth*
 python-tabpage	if_pyth.txt	/*python-tabpage*
 python-tabpages	if_pyth.txt	/*python-tabpages*
@@ -9306,6 +9323,8 @@ python.vim	syntax.txt	/*python.vim*
 python2-directory	if_pyth.txt	/*python2-directory*
 python3	if_pyth.txt	/*python3*
 python3-directory	if_pyth.txt	/*python3-directory*
+python3-stable-abi	if_pyth.txt	/*python3-stable-abi*
+python3-version-variable	eval.txt	/*python3-version-variable*
 python_x	if_pyth.txt	/*python_x*
 python_x-special-comments	if_pyth.txt	/*python_x-special-comments*
 pythonx	if_pyth.txt	/*pythonx*
@@ -10319,15 +10338,20 @@ termdebug-communication	terminal.txt	/*termdebug-communication*
 termdebug-customizing	terminal.txt	/*termdebug-customizing*
 termdebug-events	terminal.txt	/*termdebug-events*
 termdebug-example	terminal.txt	/*termdebug-example*
+termdebug-frames	terminal.txt	/*termdebug-frames*
 termdebug-prompt	terminal.txt	/*termdebug-prompt*
 termdebug-starting	terminal.txt	/*termdebug-starting*
 termdebug-stepping	terminal.txt	/*termdebug-stepping*
 termdebug-variables	terminal.txt	/*termdebug-variables*
 termdebug_disasm_window	terminal.txt	/*termdebug_disasm_window*
 termdebug_map_K	terminal.txt	/*termdebug_map_K*
+termdebug_map_minus	terminal.txt	/*termdebug_map_minus*
+termdebug_map_plus	terminal.txt	/*termdebug_map_plus*
 termdebug_popup	terminal.txt	/*termdebug_popup*
 termdebug_shortcuts	terminal.txt	/*termdebug_shortcuts*
+termdebug_signs	terminal.txt	/*termdebug_signs*
 termdebug_use_prompt	terminal.txt	/*termdebug_use_prompt*
+termdebug_variables_window	terminal.txt	/*termdebug_variables_window*
 termdebug_wide	terminal.txt	/*termdebug_wide*
 termdebug_winbar	terminal.txt	/*termdebug_winbar*
 terminal	terminal.txt	/*terminal*
@@ -10632,6 +10656,7 @@ v:prevcount	eval.txt	/*v:prevcount*
 v:profiling	eval.txt	/*v:profiling*
 v:progname	eval.txt	/*v:progname*
 v:progpath	eval.txt	/*v:progpath*
+v:python3_version	eval.txt	/*v:python3_version*
 v:register	eval.txt	/*v:register*
 v:scrollstart	eval.txt	/*v:scrollstart*
 v:searchforward	eval.txt	/*v:searchforward*

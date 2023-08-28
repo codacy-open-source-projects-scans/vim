@@ -2304,7 +2304,7 @@ find_decl(
     static int
 nv_screengo(oparg_T *oap, int dir, long dist)
 {
-    int		linelen = linetabsize_str(ml_get_curline());
+    int		linelen = linetabsize(curwin, curwin->w_cursor.lnum);
     int		retval = OK;
     int		atend = FALSE;
     int		n;
@@ -2374,7 +2374,7 @@ nv_screengo(oparg_T *oap, int dir, long dist)
 		}
 		cursor_up_inner(curwin, 1);
 
-		linelen = linetabsize_str(ml_get_curline());
+		linelen = linetabsize(curwin, curwin->w_cursor.lnum);
 		if (linelen > width1)
 		    curwin->w_curswant += (((linelen - width1 - 1) / width2)
 								+ 1) * width2;
@@ -2411,7 +2411,7 @@ nv_screengo(oparg_T *oap, int dir, long dist)
 		// clipped to column 0.
 		if (curwin->w_curswant >= width1)
 		    curwin->w_curswant -= width2;
-		linelen = linetabsize_str(ml_get_curline());
+		linelen = linetabsize(curwin, curwin->w_cursor.lnum);
 	    }
 	}
       }
@@ -5821,6 +5821,10 @@ nv_g_dollar_cmd(cmdarg_T *cap)
     oparg_T	*oap = cap->oap;
     int		i;
     int		col_off = curwin_col_off();
+    int		flag = FALSE;
+
+    if (cap->nchar == K_END || cap->nchar == K_KEND)
+	flag = TRUE;
 
     oap->motion_type = MCHAR;
     oap->inclusive = TRUE;
@@ -5885,6 +5889,13 @@ nv_g_dollar_cmd(cmdarg_T *cap)
 
 	// Make sure we stick in this column.
 	update_curswant_force();
+    }
+    if (flag)
+    {
+	do
+	    i = gchar_cursor();
+	while (VIM_ISWHITE(i) && oneleft() == OK);
+	curwin->w_valid &= ~VALID_WCOL;
     }
 }
 
@@ -6041,7 +6052,7 @@ nv_g_cmd(cmdarg_T *cap)
 	{
 	    oap->motion_type = MCHAR;
 	    oap->inclusive = FALSE;
-	    i = linetabsize_str(ml_get_curline());
+	    i = linetabsize(curwin, curwin->w_cursor.lnum);
 	    if (cap->count0 > 0 && cap->count0 <= 100)
 		coladvance((colnr_T)(i * cap->count0 / 100));
 	    else
