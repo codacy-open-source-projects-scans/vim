@@ -3486,13 +3486,15 @@ EXTERN char e_cannot_use_a_return_type_with_new[]
 	INIT(= N_("E1365: Cannot use a return type with the \"new\" function"));
 EXTERN char e_cannot_access_private_method_str[]
 	INIT(= N_("E1366: Cannot access private method: %s"));
+EXTERN char e_member_str_of_interface_str_has_different_access[]
+	INIT(= N_("E1367: Access level of member \"%s\" of interface \"%s\" is different"));
 
-EXTERN char e_interface_str_and_class_str_function_access_not_same[]
-	INIT(= N_("E1367: Access type of class method %s differs from interface method %s"));
 EXTERN char e_static_cannot_be_followed_by_this[]
 	INIT(= N_("E1368: Static cannot be followed by \"this\" in a member name"));
 EXTERN char e_duplicate_member_str[]
 	INIT(= N_("E1369: Duplicate member: %s"));
+EXTERN char e_cannot_define_new_function_as_static[]
+	INIT(= N_("E1370: Cannot define a \"new\" function as static"));
 EXTERN char e_cannot_mix_positional_and_non_positional_str[]
 	INIT(= N_("E1400: Cannot mix positional and non-positional arguments: %s"));
 EXTERN char e_fmt_arg_nr_unused_str[]
@@ -3509,5 +3511,8 @@ EXTERN char e_member_str_type_mismatch_expected_str_but_got_str[]
 	INIT(= N_("E1406: Member \"%s\": type mismatch, expected %s but got %s"));
 EXTERN char e_method_str_type_mismatch_expected_str_but_got_str[]
 	INIT(= N_("E1407: Member \"%s\": type mismatch, expected %s but got %s"));
-
-// E1368 - E1399 unused
+EXTERN char e_aptypes_is_null_str_nr[]
+	INIT(= "E1408: Internal error: ap_types or ap_types[idx] is NULL: %s: %d");
+EXTERN char e_interface_static_direct_access_str[]
+	INIT(= N_("E1409: Cannot directly access interface \"%s\" static member \"%s\""));
+// E1371 - E1399 unused

@@ -1525,6 +1525,8 @@ struct class_S
 
     int		class_refcount;
     int		class_copyID;		// used by garbage collection
+    class_T	*class_next_used;	// for list headed by "first_class"
+    class_T	*class_prev_used;	// for list headed by "first_class"
 
     class_T	*class_extends;		// parent class or NULL
 
@@ -1790,7 +1792,6 @@ struct ufunc_S
 
     class_T	*uf_class;	// for object method and constructor; does not
 				// count for class_refcount
-    int		uf_private;	// TRUE if class or object private method
 
     garray_T	uf_args;	// arguments, including optional arguments
     garray_T	uf_def_args;	// default argument expressions
@@ -1824,6 +1825,7 @@ struct ufunc_S
 # ifdef FEAT_PROFILE
     int		uf_profiling;	// TRUE when func is being profiled
     int		uf_prof_initialized;
+    hash_T	uf_hash;	// hash for uf_name when profiling
     // profiling the function as a whole
     int		uf_tm_count;	// nr of calls
     proftime_T	uf_tm_total;	// time spent in function + children
