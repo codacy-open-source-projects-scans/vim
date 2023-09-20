@@ -102,6 +102,11 @@
 # define ROOT_UID 0
 #endif
 
+/* Include MAC_OS_X_VERSION_* macros */
+#ifdef HAVE_AVAILABILITYMACROS_H
+# include <AvailabilityMacros.h>
+#endif
+
 /*
  * MACOS_X	    compiling for Mac OS X
  * MACOS_X_DARWIN   integrating the darwin feature into MACOS_X
@@ -167,7 +172,9 @@
 # if defined(FEAT_NORMAL) && !defined(FEAT_CLIPBOARD)
 #  define FEAT_CLIPBOARD
 # endif
-# if defined(FEAT_HUGE) && !defined(FEAT_SOUND)
+# if defined(FEAT_HUGE) && !defined(FEAT_SOUND) && \
+   defined(MAC_OS_X_VERSION_MIN_REQUIRED) && \
+    MAC_OS_X_VERSION_MIN_REQUIRED >= 101100
 #  define FEAT_SOUND
 # endif
 # if defined(FEAT_SOUND)
@@ -2915,5 +2922,6 @@ long elapsed(DWORD start_tick);
 // Flags used by "class_flags" of define_function()
 #define CF_CLASS	1	// inside a class
 #define CF_INTERFACE	2	// inside an interface
+#define CF_ABSTRACT_METHOD	4	// inside an abstract class
 
 #endif // VIM__H

@@ -1837,17 +1837,10 @@ generate_CALL(
 		if (class_constructor && expected->tt_type == VAR_ANY)
 		{
 		    class_T *clp = mtype->tt_class;
-		    char_u *aname = ((char_u **)ufunc->uf_args.ga_data)[i];
-		    for (int om = 0; om < clp->class_obj_member_count; ++om)
-		    {
-			if (STRCMP(aname, clp->class_obj_members[om].ocm_name)
-									== 0)
-			{
-			    expected = clp->class_obj_members[om].ocm_type;
-			    break;
-			}
-		    }
-
+		    char_u  *aname = ((char_u **)ufunc->uf_args.ga_data)[i];
+		    ocmember_T *m = object_member_lookup(clp, aname, 0, NULL);
+		    if (m != NULL)
+			expected = m->ocm_type;
 		}
 	    }
 	    else if (ufunc->uf_va_type == NULL
@@ -1906,9 +1899,15 @@ generate_CALL(
     // drop the argument types
     cctx->ctx_type_stack.ga_len -= argcount;
 
-    // For an object or class method call, drop the object/class type
+    // For an object or class method call, drop the object/class type.
     if (ufunc->uf_class != NULL)
-	cctx->ctx_type_stack.ga_len--;
+    {
+	// When a class method is called without the class name prefix, then
+	// the type will not be in the stack.
+	type_T *stype = get_type_on_stack(cctx, 0);
+	if (stype->tt_type == VAR_CLASS || stype->tt_type == VAR_OBJECT)
+	    cctx->ctx_type_stack.ga_len--;
+    }
 
     // add return type
     return push_type_stack(cctx, ufunc->uf_ret_type);
