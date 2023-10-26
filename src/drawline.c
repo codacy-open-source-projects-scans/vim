@@ -171,6 +171,11 @@ typedef struct {
 #ifdef FEAT_SIGNS
     sign_attrs_T sattr;
 #endif
+#ifdef FEAT_LINEBREAK
+     // do consider wrapping in linebreak mode only after encountering
+     // a non whitespace char
+    int		need_lbr;
+#endif
 } winlinevars_T;
 
 // draw_state values for items that are drawn in sequence:
@@ -968,6 +973,9 @@ win_line_start(win_T *wp UNUSED, winlinevars_T *wlv, int save_extra)
 {
     wlv->col = 0;
     wlv->off = (unsigned)(current_ScreenLine - ScreenLines);
+#ifdef FEAT_LINEBREAK
+    wlv->need_lbr = FALSE;
+#endif
 
 #ifdef FEAT_RIGHTLEFT
     if (wp->w_p_rl)
@@ -994,6 +1002,9 @@ win_line_start(win_T *wp UNUSED, winlinevars_T *wlv, int save_extra)
 	wlv->saved_extra_for_textprop = wlv->extra_for_textprop;
 	wlv->saved_c_extra = wlv->c_extra;
 	wlv->saved_c_final = wlv->c_final;
+#ifdef FEAT_LINEBREAK
+	wlv->need_lbr = TRUE;
+#endif
 #ifdef FEAT_SYN_HL
 	if (!(wlv->cul_screenline
 # ifdef FEAT_DIFF
@@ -1684,6 +1695,27 @@ win_line(
 	    cts.cts_vcol += charsize;
 	    prev_ptr = cts.cts_ptr;
 	    MB_PTR_ADV(cts.cts_ptr);
+	    if (wp->w_p_list)
+	    {
+		in_multispace = *prev_ptr == ' ' && (*cts.cts_ptr == ' '
+				  || (prev_ptr > line && prev_ptr[-1] == ' '));
+		if (!in_multispace)
+		    multispace_pos = 0;
+		else if (cts.cts_ptr >= line + leadcol
+					 && wp->w_lcs_chars.multispace != NULL)
+		{
+		    ++multispace_pos;
+		    if (wp->w_lcs_chars.multispace[multispace_pos] == NUL)
+			multispace_pos = 0;
+		}
+		else if (cts.cts_ptr < line + leadcol
+				     && wp->w_lcs_chars.leadmultispace != NULL)
+		{
+		    ++multispace_pos;
+		    if (wp->w_lcs_chars.leadmultispace[multispace_pos] == NUL)
+			multispace_pos = 0;
+		}
+	    }
 	}
 	wlv.vcol = cts.cts_vcol;
 	ptr = cts.cts_ptr;
@@ -2589,9 +2621,7 @@ win_line(
 #ifdef FEAT_LINEBREAK
 	    int		c0;
 #endif
-#ifdef FEAT_SPELL
 	    char_u	*prev_ptr = ptr;
-#endif
 
 	    // Get a character from the line itself.
 	    c = *ptr;
@@ -2886,8 +2916,19 @@ win_line(
 		}
 #endif
 #ifdef FEAT_LINEBREAK
+		// we don't want linebreak to apply for lines that start with
+		// leading spaces, followed by long letters (since it would add
+		// a break at the beginning of a line and this might be unexpected)
+		//
+		// So only allow to linebreak, once we have found chars not in
+		// 'breakat' in the line.
+		if ( wp->w_p_lbr && !wlv.need_lbr && c != NUL &&
+			!VIM_ISBREAK((int)*ptr))
+		    wlv.need_lbr = TRUE;
+#endif
+#ifdef FEAT_LINEBREAK
 		// Found last space before word: check for line break.
-		if (wp->w_p_lbr && c0 == c
+		if (wp->w_p_lbr && c0 == c && wlv.need_lbr
 				  && VIM_ISBREAK(c) && !VIM_ISBREAK((int)*ptr))
 		{
 		    int	    mb_off = has_mbyte ? (*mb_head_off)(line, ptr - 1)
@@ -2941,10 +2982,13 @@ win_line(
 		    }
 		}
 #endif
-		in_multispace = c == ' '
-		    && ((ptr > line + 1 && ptr[-2] == ' ') || *ptr == ' ');
-		if (!in_multispace)
-		    multispace_pos = 0;
+		if (wp->w_p_list)
+		{
+		    in_multispace = c == ' ' && (*ptr == ' '
+				  || (prev_ptr > line && prev_ptr[-1] == ' '));
+		    if (!in_multispace)
+			multispace_pos = 0;
+		}
 
 		// 'list': Change char 160 to 'nbsp' and space to 'space'
 		// setting in 'listchars'.  But not when the character is
@@ -3852,7 +3896,14 @@ win_line(
 	    else
 		ScreenAttrs[wlv.off] = wlv.char_attr;
 
-	    ScreenCols[wlv.off] = wlv.vcol;
+	    if (wlv.draw_state > WL_NR
+#ifdef FEAT_DIFF
+		    && wlv.filler_todo <= 0
+#endif
+		    )
+		ScreenCols[wlv.off] = wlv.vcol;
+	    else
+		ScreenCols[wlv.off] = -1;
 
 	    if (has_mbyte && (*mb_char2cells)(mb_c) > 1)
 	    {
@@ -3865,18 +3916,20 @@ win_line(
 		else
 		    // DBCS: Put second byte in the second screen char.
 		    ScreenLines[wlv.off] = mb_c & 0xff;
+
 		if (wlv.draw_state > WL_NR
 #ifdef FEAT_DIFF
 			&& wlv.filler_todo <= 0
 #endif
 			)
-		    ++wlv.vcol;
+		    ScreenCols[wlv.off] = ++wlv.vcol;
+		else
+		    ScreenCols[wlv.off] = -1;
+
 		// When "wlv.tocol" is halfway a character, set it to the end
 		// of the character, otherwise highlighting won't stop.
 		if (wlv.tocol == wlv.vcol)
 		    ++wlv.tocol;
-
-		ScreenCols[wlv.off] = wlv.vcol;
 
 #ifdef FEAT_RIGHTLEFT
 		if (wp->w_p_rl)

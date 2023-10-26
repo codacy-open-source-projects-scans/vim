@@ -144,7 +144,7 @@ alloc_type(type_T *type)
     if (ret->tt_member != NULL)
 	ret->tt_member = alloc_type(ret->tt_member);
 
-    if (type->tt_args != NULL)
+    if (type->tt_argcount > 0 && type->tt_args != NULL)
     {
 	int i;
 
@@ -153,6 +153,8 @@ alloc_type(type_T *type)
 	    for (i = 0; i < type->tt_argcount; ++i)
 		ret->tt_args[i] = alloc_type(type->tt_args[i]);
     }
+    else
+	ret->tt_args = NULL;
 
     return ret;
 }
@@ -648,7 +650,7 @@ valid_declaration_type(type_T *type)
     {
 	char *tofree = NULL;
 	char *name = type_name(type, &tofree);
-	semsg(_(e_invalid_type_for_object_member_str), name);
+	semsg(_(e_invalid_type_for_object_variable_str), name);
 	vim_free(tofree);
 	return FALSE;
     }
@@ -755,10 +757,12 @@ type_mismatch_where(type_T *expected, type_T *actual, where_T where)
     switch (where.wt_kind)
     {
 	case WT_MEMBER:
-	    semsg(_(e_member_str_type_mismatch_expected_str_but_got_str),
+	    semsg(_(e_variable_str_type_mismatch_expected_str_but_got_str),
 		    where.wt_func_name, typename1, typename2);
 	    break;
 	case WT_METHOD:
+	case WT_METHOD_ARG:
+	case WT_METHOD_RETURN:
 	    semsg(_(e_method_str_type_mismatch_expected_str_but_got_str),
 		    where.wt_func_name, typename1, typename2);
 	    break;
@@ -869,11 +873,22 @@ check_type_maybe(
 	    {
 		if (actual->tt_member != NULL
 					    && actual->tt_member != &t_unknown)
+		{
+		    where_T  func_where = where;
+
+		    func_where.wt_kind = WT_METHOD_RETURN;
 		    ret = check_type_maybe(expected->tt_member,
-					      actual->tt_member, FALSE, where);
+					    actual->tt_member, FALSE,
+					    func_where);
+		}
 		else
 		    ret = MAYBE;
 	    }
+	    if (ret != FAIL
+		    && ((expected->tt_flags & TTFLAG_VARARGS)
+			!= (actual->tt_flags & TTFLAG_VARARGS))
+		    && expected->tt_argcount != -1)
+		ret = FAIL;
 	    if (ret != FAIL && expected->tt_argcount != -1
 		    && actual->tt_min_argcount != -1
 		    && (actual->tt_argcount == -1
@@ -887,14 +902,19 @@ check_type_maybe(
 
 		for (i = 0; i < expected->tt_argcount
 					       && i < actual->tt_argcount; ++i)
+		{
+		    where_T  func_where = where;
+		    func_where.wt_kind = WT_METHOD_ARG;
+
 		    // Allow for using "any" argument type, lambda's have them.
 		    if (actual->tt_args[i] != &t_any && check_type(
 			    expected->tt_args[i], actual->tt_args[i], FALSE,
-								where) == FAIL)
+							func_where) == FAIL)
 		    {
 			ret = FAIL;
 			break;
 		    }
+		}
 	    }
 	    if (ret == OK && expected->tt_argcount >= 0
 						  && actual->tt_argcount == -1)
@@ -910,7 +930,14 @@ check_type_maybe(
 	    if (actual->tt_class == NULL)
 		return OK;	// A null object matches
 
-	    if (class_instance_of(actual->tt_class, expected->tt_class) == FALSE)
+	    // For object method arguments, do a invariant type check in
+	    // an extended class.  For all others, do a covariance type check.
+	    if (where.wt_kind == WT_METHOD_ARG)
+	    {
+		if (actual->tt_class != expected->tt_class)
+		    ret = FAIL;
+	    }
+	    else if (!class_instance_of(actual->tt_class, expected->tt_class))
 		ret = FAIL;
 	}
 
@@ -1204,6 +1231,15 @@ parse_type(char_u **arg, garray_T *type_gap, int give_error)
 			type = parse_type(&p, type_gap, give_error);
 			if (type == NULL)
 			    return NULL;
+			if ((flags & TTFLAG_VARARGS) != 0
+				&& type->tt_type != VAR_LIST)
+			{
+			    char *tofree;
+			    semsg(_(e_variable_arguments_type_must_be_list_str),
+				  type_name(type, &tofree));
+			    vim_free(tofree);
+			    return NULL;
+			}
 			arg_type[argcount++] = type;
 
 			// Nothing comes after "...{type}".

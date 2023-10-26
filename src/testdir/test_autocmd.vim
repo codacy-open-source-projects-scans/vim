@@ -2566,27 +2566,28 @@ func Test_ChangedP()
   call cursor(3, 1)
   let g:autocmd = ''
   call feedkeys("o\<esc>", 'tnix')
-  call assert_equal('I', g:autocmd)
+  " `TextChangedI` triggers only if text is actually changed in Insert mode
+  call assert_equal('', g:autocmd)
 
   let g:autocmd = ''
   call feedkeys("Sf", 'tnix')
-  call assert_equal('II', g:autocmd)
+  call assert_equal('I', g:autocmd)
 
   let g:autocmd = ''
   call feedkeys("Sf\<C-N>", 'tnix')
-  call assert_equal('IIP', g:autocmd)
+  call assert_equal('IP', g:autocmd)
 
   let g:autocmd = ''
   call feedkeys("Sf\<C-N>\<C-N>", 'tnix')
-  call assert_equal('IIPP', g:autocmd)
+  call assert_equal('IPP', g:autocmd)
 
   let g:autocmd = ''
   call feedkeys("Sf\<C-N>\<C-N>\<C-N>", 'tnix')
-  call assert_equal('IIPPP', g:autocmd)
+  call assert_equal('IPPP', g:autocmd)
 
   let g:autocmd = ''
   call feedkeys("Sf\<C-N>\<C-N>\<C-N>\<C-N>", 'tnix')
-  call assert_equal('IIPPPP', g:autocmd)
+  call assert_equal('IPPPP', g:autocmd)
 
   call assert_equal(['foo', 'bar', 'foobar', 'foo'], getline(1, '$'))
   " TODO: how should it handle completeopt=noinsert,noselect?
@@ -3610,6 +3611,16 @@ func Test_Changed_ChangedI()
   " call assert_equal('N4', g:autocmd_n)
   call assert_equal('I3', g:autocmd_i)
 
+  " TextChangedI should only trigger if change was done in Insert mode
+  let g:autocmd_i = ''
+  call feedkeys("yypi\<esc>", 'tnix')
+  call assert_equal('', g:autocmd_i)
+
+  " TextChanged should only trigger if change was done in Normal mode
+  let g:autocmd_n = ''
+  call feedkeys("ibar\<esc>", 'tnix')
+  call assert_equal('', g:autocmd_n)
+
   " CleanUp
   call test_override("char_avail", 0)
   au! TextChanged  <buffer>
@@ -3630,9 +3641,20 @@ func Test_closing_autocmd_window()
   END
   call v9.CheckScriptFailure(lines, 'E814:')
   au! BufEnter
-  only!
   bwipe Xa.txt
   bwipe Xb.txt
+endfunc
+
+func Test_switch_window_in_autocmd_window()
+  edit Xa.txt
+  tabnew Xb.txt
+  autocmd BufEnter Xa.txt wincmd w
+  doautoall BufEnter
+  au! BufEnter
+  bwipe Xa.txt
+  call assert_false(bufexists('Xa.txt'))
+  bwipe Xb.txt
+  call assert_false(bufexists('Xb.txt'))
 endfunc
 
 func Test_bufwipeout_changes_window()

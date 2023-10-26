@@ -107,6 +107,7 @@ def s:GetFilenameChecks(): dict<list<string>>
     asterisk: ['asterisk/file.conf', 'asterisk/file.conf-file', 'some-asterisk/file.conf', 'some-asterisk/file.conf-file'],
     astro: ['file.astro'],
     atlas: ['file.atl', 'file.as'],
+    authzed: ['schema.zed'],
     autohotkey: ['file.ahk'],
     autoit: ['file.au3'],
     automake: ['GNUmakefile.am', 'makefile.am', 'Makefile.am'],
@@ -193,6 +194,7 @@ def s:GetFilenameChecks(): dict<list<string>>
     debcontrol: ['/debian/control', 'any/debian/control'],
     debcopyright: ['/debian/copyright', 'any/debian/copyright'],
     debsources: ['/etc/apt/sources.list', '/etc/apt/sources.list.d/file.list', 'any/etc/apt/sources.list', 'any/etc/apt/sources.list.d/file.list'],
+    deb822sources: ['/etc/apt/sources.list.d/file.sources', 'any/etc/apt/sources.list.d/file.sources'],
     def: ['file.def'],
     denyhosts: ['denyhosts.conf'],
     desc: ['file.desc'],
@@ -205,7 +207,7 @@ def s:GetFilenameChecks(): dict<list<string>>
     dnsmasq: ['/etc/dnsmasq.conf', '/etc/dnsmasq.d/file', 'any/etc/dnsmasq.conf', 'any/etc/dnsmasq.d/file'],
     dockerfile: ['Containerfile', 'Dockerfile', 'dockerfile', 'file.Dockerfile', 'file.dockerfile', 'Dockerfile.debian', 'Containerfile.something'],
     dosbatch: ['file.bat'],
-    dosini: ['/etc/yum.conf', 'file.ini', 'npmrc', '.npmrc', 'php.ini', 'php.ini-5', 'php.ini-file', '/etc/yum.repos.d/file', 'any/etc/yum.conf', 'any/etc/yum.repos.d/file', 'file.wrap', 'file.vbp'],
+    dosini: ['/etc/yum.conf', 'file.ini', 'npmrc', '.npmrc', 'php.ini', 'php.ini-5', 'php.ini-file', '/etc/yum.repos.d/file', 'any/etc/yum.conf', 'any/etc/yum.repos.d/file', 'file.wrap', 'file.vbp', 'ja2.ini', 'JA2.INI'],
     dot: ['file.dot', 'file.gv'],
     dracula: ['file.drac', 'file.drc', 'filelvs', 'filelpe', 'drac.file', 'lpe', 'lvs', 'some-lpe', 'some-lvs'],
     dtd: ['file.dtd'],
@@ -275,6 +277,7 @@ def s:GetFilenameChecks(): dict<list<string>>
     gkrellmrc: ['gkrellmrc', 'gkrellmrc_x'],
     gleam: ['file.gleam'],
     glsl: ['file.glsl'],
+    gn: ['file.gn', 'file.gni'],
     gnash: ['gnashrc', '.gnashrc', 'gnashpluginrc', '.gnashpluginrc'],
     gnuplot: ['file.gpi', '.gnuplot'],
     go: ['file.go'],
@@ -332,6 +335,7 @@ def s:GetFilenameChecks(): dict<list<string>>
     j: ['file.ijs'],
     jal: ['file.jal', 'file.JAL'],
     jam: ['file.jpl', 'file.jpr', 'JAM-file.file', 'JAM.file', 'Prl-file.file', 'Prl.file'],
+    janet: ['file.janet'],
     java: ['file.java', 'file.jav'],
     javacc: ['file.jj', 'file.jjt'],
     javascript: ['file.js', 'file.jsm', 'file.javascript', 'file.es', 'file.mjs', 'file.cjs'],
@@ -349,6 +353,7 @@ def s:GetFilenameChecks(): dict<list<string>>
     jsonnet: ['file.jsonnet', 'file.libsonnet'],
     jsp: ['file.jsp'],
     julia: ['file.jl'],
+    just: ['justfile', 'Justfile', '.justfile', 'config.just'],
     kconfig: ['Kconfig', 'Kconfig.debug', 'Kconfig.file'],
     kdl: ['file.kdl'],
     kivy: ['file.kv'],
@@ -796,6 +801,7 @@ def s:GetFilenameChecks(): dict<list<string>>
     xf86conf: ['xorg.conf', 'xorg.conf-4'],
     xhtml: ['file.xhtml', 'file.xht'],
     xinetd: ['/etc/xinetd.conf', '/etc/xinetd.d/file', 'any/etc/xinetd.conf', 'any/etc/xinetd.d/file'],
+    xkb: ['/usr/share/X11/xkb/compat/pc', '/usr/share/X11/xkb/geometry/pc', '/usr/share/X11/xkb/keycodes/evdev', '/usr/share/X11/xkb/symbols/pc', '/usr/share/X11/xkb/types/pc'],
     xmath: ['file.msc', 'file.msf'],
     xml: ['/etc/blkid.tab', '/etc/blkid.tab.old', 'file.xmi', 'file.csproj', 'file.csproj.user', 'file.fsproj', 'file.fsproj.user', 'file.vbproj', 'file.vbproj.user', 'file.ui', 'file.tpm', '/etc/xdg/menus/file.menu', 'fglrxrc', 'file.xlf', 'file.xliff', 'file.xul', 'file.wsdl', 'file.wpl', 'any/etc/blkid.tab', 'any/etc/blkid.tab.old', 'any/etc/xdg/menus/file.menu', 'file.atom', 'file.rss', 'file.cdxml', 'file.psc1', 'file.mpd'],
     xmodmap: ['anyXmodmap', 'Xmodmap', 'some-Xmodmap', 'some-xmodmap', 'some-xmodmap-file', 'xmodmap', 'xmodmap-file'],
@@ -810,10 +816,9 @@ def s:GetFilenameChecks(): dict<list<string>>
     yang: ['file.yang'],
     yuck: ['file.yuck'],
     z8a: ['file.z8a'],
-    zig: ['file.zig'],
+    zig: ['file.zig', 'build.zig.zon'],
     zimbu: ['file.zu'],
     zimbutempl: ['file.zut'],
-    zir: ['file.zir'],
     zserio: ['file.zs'],
     zsh: ['.zprofile', '/etc/zprofile', '.zfbfmarks', 'file.zsh',
           '.zcompdump', '.zlogin', '.zlogout', '.zshenv', '.zshrc',
@@ -949,6 +954,7 @@ def s:GetScriptChecks(): dict<list<list<string>>>
     crystal: [['#!/path/crystal']],
     rexx:   [['#!/path/rexx'],
             ['#!/path/regina']],
+    janet: [['#!/path/janet']],
   }
 enddef
 
@@ -1474,12 +1480,12 @@ func Test_hook_file()
 
   call writefile(['[Trigger]', 'this is pacman config'], 'Xfile.hook', 'D')
   split Xfile.hook
-  call assert_equal('conf', &filetype)
+  call assert_equal('confini', &filetype)
   bwipe!
 
   call writefile(['not pacman'], 'Xfile.hook')
   split Xfile.hook
-  call assert_notequal('conf', &filetype)
+  call assert_notequal('confini', &filetype)
   bwipe!
 
   filetype off
