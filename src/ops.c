@@ -231,7 +231,7 @@ shift_line(
 {
     long long	count;
     int		i, j;
-    int		sw_val = (int)get_sw_value_indent(curbuf);
+    int		sw_val = trim_to_int(get_sw_value_indent(curbuf));
 
     count = (long long)get_indent();	// get current indent
 
@@ -249,30 +249,25 @@ shift_line(
 	}
 	else
 	    i += amount;
-	count = i * sw_val;
+	count = (long long)i * (long long)sw_val;
     }
     else		// original vi indent
     {
 	if (left)
 	{
-	    count -= sw_val * amount;
+	    count -= (long long)sw_val * (long long)amount;
 	    if (count < 0)
 		count = 0;
 	}
 	else
-	{
-	    if ((long long)sw_val * (long long)amount > INT_MAX - count)
-		count = INT_MAX;
-	    else
-		count += (long long)sw_val * (long long)amount;
-	}
+	    count += (long long)sw_val * (long long)amount;
     }
 
     // Set new indent
     if (State & VREPLACE_FLAG)
-	change_indent(INDENT_SET, (int)count, FALSE, NUL, call_changed_bytes);
+	change_indent(INDENT_SET, trim_to_int(count), FALSE, NUL, call_changed_bytes);
     else
-	(void)set_indent((int)count, call_changed_bytes ? SIN_CHANGED : 0);
+	(void)set_indent(trim_to_int(count), call_changed_bytes ? SIN_CHANGED : 0);
 }
 
 /*
