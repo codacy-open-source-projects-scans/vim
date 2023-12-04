@@ -1397,6 +1397,9 @@ au BufRead,BufNewFile *.mu			setf mupad
 " Mush
 au BufNewFile,BufRead *.mush			setf mush
 
+" Mustache
+au BufNewFile,BufRead *.mustache		setf mustache
+
 " Mutt setup file (also for Muttng)
 au BufNewFile,BufRead Mutt{ng,}rc		setf muttrc
 
@@ -1460,7 +1463,7 @@ au BufNewFile,BufRead *.nse			setf lua
 au BufNewFile,BufRead *.nsi,*.nsh		setf nsis
 
 " Nu
-au BufNewFile,BufRead {env,config}.nu		setf nu
+au BufNewFile,BufRead *.nu		setf nu
 
 " Oblivion Language and Oblivion Script Extender
 au BufNewFile,BufRead *.obl,*.obse,*.oblivion,*.obscript  setf obse
