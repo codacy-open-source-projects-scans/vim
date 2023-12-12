@@ -3093,25 +3093,77 @@ def Test_closure_in_class()
   v9.CheckSourceSuccess(lines)
 enddef
 
-def Test_call_constructor_from_legacy()
+def Test_construct_object_from_legacy()
+  # Cannot directly invoke constructor from legacy
   var lines =<< trim END
     vim9script
 
-    var newCalled = 'false'
+    var newCalled = false
 
     class A
-      def new()
-        newCalled = 'true'
+      def new(arg: string)
+        newCalled = true
       enddef
     endclass
 
-    export def F(options = {}): any
-      return A
+    export def CreateA(...args: list<any>): A
+      return call(A.new, args)
     enddef
 
-    g:p = F()
-    legacy call p.new()
-    assert_equal('true', newCalled)
+    g:P = CreateA
+    legacy call g:P('some_arg')
+    assert_equal(true, newCalled)
+    unlet g:P
+  END
+  v9.CheckSourceSuccess(lines)
+
+  lines =<< trim END
+    vim9script
+
+    var newCalled = false
+
+    class A
+      static def CreateA(options = {}): any
+        return A.new()
+      enddef
+      def new()
+        newCalled = true
+      enddef
+    endclass
+
+    g:P = A.CreateA
+    legacy call g:P()
+    assert_equal(true, newCalled)
+    unlet g:P
+  END
+  v9.CheckSourceSuccess(lines)
+
+  # This also tests invoking "new()" with "call"
+  lines =<< trim END
+    vim9script
+
+    var createdObject: any
+
+    class A
+      this.val1: number
+      this.val2: number
+      static def CreateA(...args: list<any>): any
+        createdObject = call(A.new, args)
+        return createdObject
+      enddef
+    endclass
+
+    g:P = A.CreateA
+    legacy call g:P(3, 5)
+    assert_equal(3, createdObject.val1)
+    assert_equal(5, createdObject.val2)
+    legacy call g:P()
+    assert_equal(0, createdObject.val1)
+    assert_equal(0, createdObject.val2)
+    legacy call g:P(7)
+    assert_equal(7, createdObject.val1)
+    assert_equal(0, createdObject.val2)
+    unlet g:P
   END
   v9.CheckSourceSuccess(lines)
 enddef
@@ -8561,7 +8613,7 @@ def Test_dict_member_key_type_check()
     var a = A.new()
     a.Foo()
   END
-  v9.CheckSourceFailure(lines, 'E1012: Type mismatch; expected string but got dict<unknown>', 2)
+  v9.CheckSourceFailure(lines, 'E1012: Type mismatch; expected string but got dict<any>', 2)
 
   lines =<< trim END
     vim9script
@@ -8582,7 +8634,7 @@ def Test_dict_member_key_type_check()
     var a = A.new()
     a.Foo()
   END
-  v9.CheckSourceFailure(lines, 'E1012: Type mismatch; expected number but got dict<unknown>', 3)
+  v9.CheckSourceFailure(lines, 'E1012: Type mismatch; expected number but got dict<any>', 3)
 enddef
 
 def Test_compile_many_def_functions_in_funcref_instr()
