@@ -7862,7 +7862,7 @@ fun! s:NetrwMarkFileMove(islocal)
      let movecmd     = netrw#WinPath(movecmd).movecmdargs
 "     call Decho("windows exception: movecmd<".movecmd."> (#1: had a space)",'~'.expand("<slnum>"))
     else
-     let movecmd = netrw#WinPath(movecmd)
+     let movecmd = netrw#WinPath(g:netrw_localmovecmd)
 "     call Decho("windows exception: movecmd<".movecmd."> (#2: no space)",'~'.expand("<slnum>"))
     endif
    else
@@ -7876,10 +7876,6 @@ fun! s:NetrwMarkFileMove(islocal)
     endif
     if !g:netrw_cygwin && (has("win32") || has("win95") || has("win64") || has("win16"))
      let fname= substitute(fname,'/','\\','g')
-     if g:netrw_keepdir
-      " Jul 19, 2022: fixing file move when g:netrw_keepdir is 1
-      let fname= b:netrw_curdir."\\".fname
-     endif
     endif
 "    call Decho("system(".movecmd." ".s:ShellEscape(fname)." ".tgt.")",'~'.expand("<slnum>"))
     let ret= system(movecmd.g:netrw_localmovecmdopt." ".s:ShellEscape(fname)." ".tgt)
@@ -11587,7 +11583,7 @@ endfun
 "  netrw#RFC2396: converts %xx into characters {{{2
 fun! netrw#RFC2396(fname)
 "  call Dfunc("netrw#RFC2396(fname<".a:fname.">)")
-  let fname = escape(substitute(a:fname,'%\(\x\x\)','\=nr2char("0x".submatch(1))','ge')," \t")
+  let fname = escape(substitute(a:fname,'%\(\x\x\)','\=printf("%c","0x".submatch(1))','ge')," \t")
 "  call Dret("netrw#RFC2396 ".fname)
   return fname
 endfun

@@ -1024,6 +1024,7 @@ $quote	eval.txt	/*$quote*
 't_AU'	term.txt	/*'t_AU'*
 't_BD'	term.txt	/*'t_BD'*
 't_BE'	term.txt	/*'t_BE'*
+'t_CF'	term.txt	/*'t_CF'*
 't_CS'	term.txt	/*'t_CS'*
 't_CV'	term.txt	/*'t_CV'*
 't_Ce'	term.txt	/*'t_Ce'*
@@ -4535,6 +4536,8 @@ E1508	editing.txt	/*E1508*
 E1509	editing.txt	/*E1509*
 E151	helphelp.txt	/*E151*
 E1510	change.txt	/*E1510*
+E1511	options.txt	/*E1511*
+E1512	options.txt	/*E1512*
 E152	helphelp.txt	/*E152*
 E153	helphelp.txt	/*E153*
 E154	helphelp.txt	/*E154*
@@ -5706,6 +5709,7 @@ TabNew	autocmd.txt	/*TabNew*
 Tcl	if_tcl.txt	/*Tcl*
 TermChanged	autocmd.txt	/*TermChanged*
 TermResponse	autocmd.txt	/*TermResponse*
+TermResponseAll	autocmd.txt	/*TermResponseAll*
 TermdebugStartPost	terminal.txt	/*TermdebugStartPost*
 TermdebugStartPre	terminal.txt	/*TermdebugStartPre*
 TermdebugStopPost	terminal.txt	/*TermdebugStopPost*
@@ -6428,6 +6432,7 @@ cino-{	indent.txt	/*cino-{*
 cino-}	indent.txt	/*cino-}*
 cinoptions-values	indent.txt	/*cinoptions-values*
 class	vim9class.txt	/*class*
+class-compile	vim9class.txt	/*class-compile*
 class-method	vim9class.txt	/*class-method*
 clear-undo	undo.txt	/*clear-undo*
 clearmatches()	builtin.txt	/*clearmatches()*
@@ -7147,6 +7152,7 @@ foldtextresult()	builtin.txt	/*foldtextresult()*
 font-sizes	gui_x11.txt	/*font-sizes*
 fontset	mbyte.txt	/*fontset*
 forced-motion	motion.txt	/*forced-motion*
+foreach()	builtin.txt	/*foreach()*
 foreground()	builtin.txt	/*foreground()*
 fork	os_unix.txt	/*fork*
 form.vim	syntax.txt	/*form.vim*
@@ -7944,6 +7950,7 @@ highlight-clear	syntax.txt	/*highlight-clear*
 highlight-cterm	syntax.txt	/*highlight-cterm*
 highlight-ctermbg	syntax.txt	/*highlight-ctermbg*
 highlight-ctermfg	syntax.txt	/*highlight-ctermfg*
+highlight-ctermfont	syntax.txt	/*highlight-ctermfont*
 highlight-ctermul	syntax.txt	/*highlight-ctermul*
 highlight-default	syntax.txt	/*highlight-default*
 highlight-font	syntax.txt	/*highlight-font*
@@ -10144,6 +10151,7 @@ t_AL	term.txt	/*t_AL*
 t_AU	term.txt	/*t_AU*
 t_BD	term.txt	/*t_BD*
 t_BE	term.txt	/*t_BE*
+t_CF	term.txt	/*t_CF*
 t_CS	term.txt	/*t_CS*
 t_CTRL-W_.	terminal.txt	/*t_CTRL-W_.*
 t_CTRL-W_:	terminal.txt	/*t_CTRL-W_:*
