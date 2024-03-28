@@ -653,7 +653,10 @@ ins_compl_infercase_gettext(
 	    // getting to six bytes from the edge of IObuff switch to using a
 	    // growarray.  Add the character in the next round.
 	    if (ga_grow(&gap, IOSIZE) == FAIL)
+	    {
+		vim_free(wca);
 		return (char_u *)"[failed]";
+	    }
 	    *p = NUL;
 	    STRCPY(gap.ga_data, IObuff);
 	    gap.ga_len = (int)STRLEN(IObuff);
@@ -3092,7 +3095,7 @@ get_complete_info(list_T *what_list, dict_T *retdict)
 
     if (ret == OK && (what_flag & CI_WHAT_ITEMS || what_flag & CI_WHAT_SELECTED))
     {
-	list_T	    *li;
+	list_T	    *li = NULL;
 	dict_T	    *di;
 	compl_T     *match;
 	int         selected_idx = -1;
