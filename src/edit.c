@@ -845,9 +845,10 @@ doESCkey:
 		did_cursorhold = FALSE;
 
 		// ins_redraw() triggers TextChangedI only when no characters
-		// are in the typeahead buffer, so only reset curbuf->b_last_changedtick
+		// are in the typeahead buffer, so reset curbuf->b_last_changedtick only
 		// if the TextChangedI was not blocked by char_avail() (e.g. using :norm!)
-		if (!char_avail())
+		// and the TextChangedI autocommand has been triggered.
+		if (!char_avail() && curbuf->b_last_changedtick_i == CHANGEDTICK(curbuf))
 		    curbuf->b_last_changedtick = CHANGEDTICK(curbuf);
 		return (c == Ctrl_O);
 	    }
@@ -4210,12 +4211,11 @@ ins_bs(
 				&& (!*inserted_space_p
 				    || arrow_used))))))
 	{
-	    int		ts;
 	    colnr_T	vcol = 0;
 	    colnr_T	want_vcol;
 	    char_u	*line;
 	    char_u	*ptr;
-	    char_u	*end_ptr;
+	    char_u	*cursor_ptr;
 	    char_u	*space_ptr;
 	    colnr_T	space_vcol = 0;
 	    int		prev_space = FALSE;
@@ -4224,11 +4224,13 @@ ins_bs(
 	    *inserted_space_p = FALSE;
 
 	    space_ptr = ptr = line = ml_get_curline();
-	    end_ptr = line + curwin->w_cursor.col;
+	    cursor_ptr = line + curwin->w_cursor.col;
 
-	    // Find the last whitespace that is preceded by non-whitespace.
+	    // Compute virtual column of cursor position, and find the last
+	    // whitespace before cursor that is preceded by non-whitespace.
 	    // Use chartabsize() so that virtual text and wrapping are ignored.
-	    do {
+	    while (ptr < cursor_ptr)
+	    {
 		int	cur_space = VIM_ISWHITE(*ptr);
 
 		if (!prev_space && cur_space)
@@ -4239,25 +4241,18 @@ ins_bs(
 		vcol += chartabsize(ptr, vcol);
 		MB_PTR_ADV(ptr);
 		prev_space = cur_space;
-	    } while (ptr < end_ptr);
+	    }
 
 	    // Compute the virtual column where we want to be.
-	    want_vcol = vcol - 1;
-#ifdef FEAT_VARTABS
+	    want_vcol = vcol > 0 ? vcol - 1 : 0;
 	    if (p_sta && in_indent)
-	    {
-		ts = (int)get_sw_value(curbuf);
-		want_vcol = (want_vcol / ts) * ts;
-	    }
+		want_vcol -= want_vcol % (int)get_sw_value(curbuf);
 	    else
+#ifdef FEAT_VARTABS
 		want_vcol = tabstop_start(want_vcol, get_sts_value(),
 						       curbuf->b_p_vsts_array);
 #else
-	    if (p_sta && in_indent)
-		ts = (int)get_sw_value(curbuf);
-	    else
-		ts = (int)get_sts_value();
-	    want_vcol = (want_vcol / ts) * ts;
+		want_vcol -= want_vcol % (int)get_sts_value();
 #endif
 
 	    // Find the position to stop backspacing.
@@ -4807,7 +4802,7 @@ ins_pageup(void)
     }
 
     tpos = curwin->w_cursor;
-    if (onepage(BACKWARD, 1L) == OK)
+    if (pagescroll(BACKWARD, 1L, FALSE) == OK)
     {
 	start_arrow(&tpos);
 	can_cindent = TRUE;
@@ -4864,7 +4859,7 @@ ins_pagedown(void)
     }
 
     tpos = curwin->w_cursor;
-    if (onepage(FORWARD, 1L) == OK)
+    if (pagescroll(FORWARD, 1L, FALSE) == OK)
     {
 	start_arrow(&tpos);
 	can_cindent = TRUE;
