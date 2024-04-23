@@ -678,6 +678,19 @@ changed_window_setting_buf(buf_T *buf)
 #endif
 
 /*
+ * Call changed_window_setting_win() for every window.
+ */
+    void
+changed_window_setting_all(void)
+{
+    tabpage_T	*tp;
+    win_T	*wp;
+
+    FOR_ALL_TAB_WINDOWS(tp, wp)
+	changed_window_setting_win(wp);
+}
+
+/*
  * Set wp->w_topline to a certain number.
  */
     void
@@ -3102,7 +3115,7 @@ static int get_scroll_overlap(int dir)
 
     loff.lnum = dir == FORWARD ? curwin->w_botline : curwin->w_topline - 1;
 #ifdef FEAT_DIFF
-    loff.fill = diff_check_fill(curwin, loff.lnum + dir == BACKWARD)
+    loff.fill = diff_check_fill(curwin, loff.lnum + (dir == BACKWARD))
 		- (dir == FORWARD ? curwin->w_filler_rows : curwin->w_topfill);
     loff.height = loff.fill > 0 ? 1 : plines_nofill(loff.lnum);
 #else
@@ -3231,17 +3244,6 @@ pagescroll(int dir, long count, int half)
 	    cursor_down_inner(curwin, curscount);
 	else
 	    cursor_up_inner(curwin, curscount);
-
-	if (get_scrolloff_value() > 0)
-	    cursor_correct();
-#ifdef FEAT_FOLDING
-	// Move cursor to first line of closed fold.
-	foldAdjustCursor();
-#endif
-
-	nochange = nochange
-	    && prev_col == curwin->w_cursor.col
-	    && prev_lnum == curwin->w_cursor.lnum;
     }
     else
     {
@@ -3249,7 +3251,22 @@ pagescroll(int dir, long count, int half)
 	count *= ((ONE_WINDOW && p_window > 0 && p_window < Rows - 1) ?
 				MAX(1, p_window - 2) : get_scroll_overlap(dir));
 	nochange = scroll_with_sms(dir, count);
+
+	// Place cursor at top or bottom of window.
+	validate_botline();
+	curwin->w_cursor.lnum = (dir == FORWARD ? curwin->w_topline
+						    : curwin->w_botline - 1);
     }
+
+    if (get_scrolloff_value() > 0)
+	cursor_correct();
+#ifdef FEAT_FOLDING
+    // Move cursor to first line of closed fold.
+    foldAdjustCursor();
+#endif
+    nochange = nochange
+	&& prev_col == curwin->w_cursor.col
+	&& prev_lnum == curwin->w_cursor.lnum;
 
     // Error if both the viewport and cursor did not change.
     if (nochange)
