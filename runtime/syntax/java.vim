@@ -3,7 +3,7 @@
 " Maintainer:		Aliaksei Budavei <0x000c70 AT gmail DOT com>
 " Former Maintainer:	Claudio Fleiner <claudio@fleiner.com>
 " Repository:		https://github.com/zzzyxwvut/java-vim.git
-" Last Change:		2024 Apr 13
+" Last Change:		2024 Apr 28
 
 " Please check :help java.vim for comments on some of the options available.
 
@@ -82,7 +82,8 @@ syn match   javaConceptKind	"\<default\>\%(\s*\%(:\|->\)\)\@!"
 " ".java\=" extension used for a production version and an arbitrary
 " extension used for a testing version.
 let s:module_info_cur_buf = fnamemodify(bufname("%"), ":t") =~ '^module-info\%(\.class\>\)\@!'
-lockvar s:module_info_cur_buf
+let s:selectable_regexp_engine = !(v:version < 704)
+lockvar s:selectable_regexp_engine s:module_info_cur_buf
 
 " Java modules (since Java 9, for "module-info.java" file).
 if s:module_info_cur_buf
@@ -287,24 +288,42 @@ syn match   javaSpecial "\\u\x\x\x\x"
 
 syn cluster javaTop add=javaString,javaStrTempl,javaCharacter,javaNumber,javaSpecial,javaStringError,javaTextBlockError
 
+" Method declarations (JLS-17, §8.4.3, §8.4.4, §9.4).
 if exists("java_highlight_functions")
-  if java_highlight_functions == "indent"
-    syn match javaFuncDef "^\%(\t\|  \%( \{6\}\)\=\)\K\%(\k\|[ .,<>\[\]]\)*([^-+*/]*)" contains=javaScopeDecl,javaConceptKind,javaType,javaStorageClass,@javaClasses,javaAnnotation
-    syn region javaFuncDef start=+^\%(\t\|  \%( \{6\}\)\=\)\K\%(\k\|[ .,<>\[\]]\)*([^-+*/]*,\s*+ end=+)+ contains=javaScopeDecl,javaConceptKind,javaType,javaStorageClass,@javaClasses,javaAnnotation
+  syn cluster javaFuncParams contains=javaAnnotation,@javaClasses,javaType,javaVarArg,javaComment,javaLineComment
+
+  if java_highlight_functions =~# '^indent[1-8]\=$'
+    let s:last = java_highlight_functions[-1 :]
+    let s:indent = s:last != 't' ? repeat("\x20", s:last) : "\t"
+    syn cluster javaFuncParams add=javaScopeDecl,javaConceptKind,javaStorageClass,javaExternal
+    " Try to not match other type members, initialiser blocks, enum
+    " constants (JLS-17, §8.9.1), and constructors (JLS-17, §8.1.7):
+    " at any _conventional_ indentation, skip over all fields with
+    " "[^=]*", all records with "\<record\s", and let the "*Skip*"
+    " definitions take care of constructor declarations and enum
+    " constants (with no support for @Foo(value = "bar")).
+    exec 'syn region javaFuncDef start=+^' . s:indent . '\%(<[^>]\+>\+\s\+\|\%(\%(@\%(\K\k*\.\)*\K\k*\>\)\s\+\)\+\)\=\%(\<\K\k*\>\.\)*\K\k*\>[^=]*\%(\<record\)\@6<!\s\K\k*\s*(+ end=+)+ contains=@javaFuncParams'
+    " As long as package-private constructors cannot be matched with
+    " javaFuncDef, do not look with javaConstructorSkipDeclarator for
+    " them.
+    exec 'syn match javaConstructorSkipDeclarator transparent +^' . s:indent . '\%(\%(@\%(\K\k*\.\)*\K\k*\>\)\s\+\)*p\%(ublic\|rotected\|rivate\)\s\+\%(<[^>]\+>\+\s\+\)\=\K\k*\s*\ze(+ contains=javaAnnotation,javaScopeDecl'
+    exec 'syn match javaEnumSkipArgumentativeConstant transparent +^' . s:indent . '\%(\%(@\%(\K\k*\.\)*\K\k*\>\)\s\+\)*\K\k*\s*\ze(+ contains=javaAnnotation'
+    unlet s:indent s:last
   else
     " This is the "style" variant (:help ft-java-syntax).
-    "
-    " Match arbitrarily indented method and constructor declarations
-    " and some enum constants.
-    "
-    " TODO: Come back to refine and fix the parts of javaFuncDef.
-    " TODO: Request the new regexp engine for [:upper:] and [:lower:].
-    "
-    " XXX: \C\<[^a-z0-9]\k*\> rejects "type", but matches "τύπος".
-    " XXX: \C\<[^A-Z0-9]\k*\> rejects "Method", but matches "Μέθοδος".
-    "
-    " Match: [abstract] [<α, β>] [Τʬ][<γ>][[][]] [μΜ]ʭʭ(/* ... */);
-    syn region javaFuncDef start=+^\s\+\%(\%(public\|protected\|private\|static\|\%(abstract\|default\)\|final\|native\|synchronized\)\s\+\)*\%(<.*>\s\+\)\=\%(\%(void\|boolean\|char\|byte\|short\|int\|long\|float\|double\|\%(\K\k*\.\)*\<[^a-z0-9]\k*\>\)\%(<[^(){}]*>\)\=\%(\[\]\)*\s\+\<[^A-Z0-9]\k*\>\|\<[^a-z0-9]\k*\>\)\s*(+ end=+)+ contains=javaScopeDecl,javaConceptKind,javaType,javaStorageClass,javaComment,javaLineComment,@javaClasses,javaAnnotation
+    syn cluster javaFuncParams add=javaScopeDecl,javaConceptKind,javaStorageClass,javaExternal
+
+    " Match arbitrarily indented camelCasedName method declarations.
+    " Match: [@ɐ] [abstract] [<α, β>] Τʬ[<γ>][[][]] μʭʭ(/* ... */);
+
+    if s:selectable_regexp_engine
+      " Request the new regexp engine for [:upper:] and [:lower:].
+      syn region javaFuncDef start=/\%#=2^\s\+\%(\%(@\%(\K\k*\.\)*\K\k*\>\)\s\+\)*\%(p\%(ublic\|rotected\|rivate\)\s\+\)\=\%(\%(abstract\|default\)\s\+\|\%(\%(final\|\%(native\|strictfp\)\|s\%(tatic\|ynchronized\)\)\s\+\)*\)\=\%(<.*[[:space:]-]\@1<!>\s\+\)\=\%(void\|\%(b\%(oolean\|yte\)\|char\|short\|int\|long\|float\|double\|\%(\<\K\k*\>\.\)*\<[$_[:upper:]]\k*\>\%(<[^(){}]*[[:space:]-]\@1<!>\)\=\)\%(\[\]\)*\)\s\+\<[$_[:lower:]]\k*\>\s*(/ end=/)/ skip=/\/\*.\{-}\*\/\|\/\/.*$/ contains=@javaFuncParams
+    else
+      " XXX: \C\<[^a-z0-9]\k*\> rejects "type", but matches "τύπος".
+      " XXX: \C\<[^A-Z0-9]\k*\> rejects "Method", but matches "Μέθοδος".
+      syn region javaFuncDef start=/^\s\+\%(\%(@\%(\K\k*\.\)*\K\k*\>\)\s\+\)*\%(p\%(ublic\|rotected\|rivate\)\s\+\)\=\%(\%(abstract\|default\)\s\+\|\%(\%(final\|\%(native\|strictfp\)\|s\%(tatic\|ynchronized\)\)\s\+\)*\)\=\%(<.*[[:space:]-]\@1<!>\s\+\)\=\%(void\|\%(b\%(oolean\|yte\)\|char\|short\|int\|long\|float\|double\|\%(\<\K\k*\>\.\)*\<[^a-z0-9]\k*\>\%(<[^(){}]*[[:space:]-]\@1<!>\)\=\)\%(\[\]\)*\)\s\+\<[^A-Z0-9]\k*\>\s*(/ end=/)/ skip=/\/\*.\{-}\*\/\|\/\/.*$/ contains=@javaFuncParams
+    endif
   endif
 
   syn match   javaLambdaDef "\<\K\k*\>\%(\<default\>\)\@<!\s*->"
@@ -476,6 +495,6 @@ endif
 
 let b:spell_options = "contained"
 let &cpo = s:cpo_save
-unlet s:module_info_cur_buf s:cpo_save
+unlet s:selectable_regexp_engine s:module_info_cur_buf s:cpo_save
 
 " vim: ts=8
