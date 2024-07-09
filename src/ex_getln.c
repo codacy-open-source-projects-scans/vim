@@ -1586,6 +1586,7 @@ getcmdline_int(
     int		res;
     int		save_msg_scroll = msg_scroll;
     int		save_State = State;	// remember State when called
+    int		prev_cmdpos = -1;
     int		some_key_typed = FALSE;	// one of the keys was typed
     // mouse drag and release events are ignored, unless they are
     // preceded with a mouse down event
@@ -2473,6 +2474,13 @@ getcmdline_int(
  * (Sorry for the goto's, I know it is ugly).
  */
 cmdline_not_changed:
+	// Trigger CursorMovedC autocommands.
+	if (ccline.cmdpos != prev_cmdpos)
+	{
+	    trigger_cmd_autocmd(cmdline_type, EVENT_CURSORMOVEDC);
+	    prev_cmdpos = ccline.cmdpos;
+	}
+
 #ifdef FEAT_SEARCH_EXTRA
 	if (!is_state.incsearch_postponed)
 	    continue;
@@ -2484,9 +2492,16 @@ cmdline_changed:
 	if (is_state.winid != curwin->w_id)
 	    init_incsearch_state(&is_state);
 #endif
+	// Trigger CmdlineChanged autocommands.
 	if (trigger_cmdlinechanged)
-	    // Trigger CmdlineChanged autocommands.
 	    trigger_cmd_autocmd(cmdline_type, EVENT_CMDLINECHANGED);
+
+	// Trigger CursorMovedC autocommands.
+	if (ccline.cmdpos != prev_cmdpos)
+	{
+	    trigger_cmd_autocmd(cmdline_type, EVENT_CURSORMOVEDC);
+	    prev_cmdpos = ccline.cmdpos;
+	}
 
 #ifdef FEAT_SEARCH_EXTRA
 	if (xpc.xp_context == EXPAND_NOTHING && (KeyTyped || vpeekc() == NUL))
@@ -3130,31 +3145,15 @@ redraw:
 	windgoto(msg_row, msg_col);
 	pend = (char_u *)(line_ga.ga_data) + line_ga.ga_len;
 
-	// We are done when a NL is entered, but not when it comes after an
-	// odd number of backslashes, that results in a NUL.
-	if (line_ga.ga_len > 0 && pend[-1] == '\n')
+	// We are done when a NL is entered, but not when it comes after a
+	// backslash in prompt mode.
+	if (line_ga.ga_len > 0 && pend[-1] == '\n'
+		&& (line_ga.ga_len <= 1 || pend[-2] != '\\' || !promptc))
 	{
-	    int bcount = 0;
-
-	    while (line_ga.ga_len - 2 >= bcount && pend[-2 - bcount] == '\\')
-		++bcount;
-
-	    if (bcount > 0)
-	    {
-		// Halve the number of backslashes: "\NL" -> "NUL", "\\NL" ->
-		// "\NL", etc.
-		line_ga.ga_len -= (bcount + 1) / 2;
-		pend -= (bcount + 1) / 2;
-		pend[-1] = '\n';
-	    }
-
-	    if ((bcount & 1) == 0)
-	    {
-		--line_ga.ga_len;
-		--pend;
-		*pend = NUL;
-		break;
-	    }
+	    --line_ga.ga_len;
+	    --pend;
+	    *pend = NUL;
+	    break;
 	}
     }
 
@@ -4315,6 +4314,7 @@ set_cmdline_pos(
 	new_cmdpos = 0;
     else
 	new_cmdpos = pos;
+
     return 0;
 }
 

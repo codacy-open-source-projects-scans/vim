@@ -1,4 +1,4 @@
-*autocmd.txt*   For Vim version 9.1.  Last change: 2024 May 05
+*autocmd.txt*   For Vim version 9.1.  Last change: 2024 Jul 09
 
 
 		  VIM REFERENCE MANUAL    by Bram Moolenaar
@@ -54,20 +54,20 @@ Recommended use:
   without the autocommand being repeated.
 
 Example in Vim9 script: >
-   autocmd_add({replace: true,
+   autocmd_add([{replace: true,
 		group:   'DemoGroup',
 		event:   'BufEnter',
 		pattern: '*.txt',
 		cmd:     'call DemoBufEnter()'
-		})
+		}])
 
 In legacy script: >
-   call autocmd_add(#{replace: v:true,
+   call autocmd_add([#{replace: v:true,
 		    \ group: 'DemoGroup',
 		    \ event: 'BufEnter',
 		    \ pattern: '*.txt',
 		    \ cmd: 'call DemoBufEnter()'
-		    \ })
+		    \ }])
 
 ==============================================================================
 2. Defining autocommands				*autocmd-define*
@@ -379,6 +379,7 @@ Name			triggered by ~
 |CursorHold|		the user doesn't press a key for a while
 |CursorHoldI|		the user doesn't press a key for a while in Insert mode
 |CursorMoved|		the cursor was moved in Normal mode
+|CursorMovedC|		the cursor was moved in the |Command-line|
 |CursorMovedI|		the cursor was moved in Insert mode
 
 |WinNewPre|		before creating a new window
@@ -748,6 +749,13 @@ CursorMoved			After the cursor was moved in Normal or Visual
 				Careful: This is triggered very often, don't
 				do anything that the user does not expect or
 				that is slow.
+							*CursorMovedC*
+CursorMovedC			After the cursor was moved in the command
+				line.  Be careful not to mess up the command
+				line, it may cause Vim to lock up.
+				<afile> is set to a single character,
+				indicating the type of command-line.
+				|cmdwin-char|
 							*CursorMovedI*
 CursorMovedI			After the cursor was moved in Insert mode.
 				Not triggered when the popup menu is visible.
@@ -906,12 +914,12 @@ FilterWritePre			Before writing a file for a filter command or
 							*FocusGained*
 FocusGained			When Vim got input focus.  Only for the GUI
 				version and a few console versions where this
-				can be detected.
+				can be detected. |xterm-focus-event|
 							*FocusLost*
 FocusLost			When Vim lost input focus.  Only for the GUI
 				version and a few console versions where this
-				can be detected.  May also happen when a
-				dialog pops up.
+				can be detected. |xterm-focus-event|
+				May also happen when a dialog pops up.
 							*FuncUndefined*
 FuncUndefined			When a user function is used but it isn't
 				defined.  Useful for defining a function only

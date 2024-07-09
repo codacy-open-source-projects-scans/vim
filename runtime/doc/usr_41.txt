@@ -798,6 +798,7 @@ String manipulation:					*string-functions*
 	execute()		execute an Ex command and get the output
 	win_execute()		like execute() but in a specified window
 	trim()			trim characters from a string
+	bindtextdomain()	set message lookup translation base path
 	gettext()		lookup message translation
 
 List manipulation:					*list-functions*
@@ -1406,6 +1407,8 @@ Various:					*various-functions*
 	shiftwidth()		effective value of 'shiftwidth'
 
 	wordcount()		get byte/word/char count of buffer
+
+	id()			get unique string for item to use as a key
 
 	luaeval()		evaluate |Lua| expression
 	mzeval()		evaluate |MzScheme| expression
