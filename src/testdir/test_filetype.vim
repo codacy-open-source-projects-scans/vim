@@ -366,6 +366,7 @@ def s:GetFilenameChecks(): dict<list<string>>
     javascriptreact: ['file.jsx'],
     jess: ['file.clp'],
     jgraph: ['file.jgr'],
+    jinja: ['file.jinja'],
     jj: ['file.jjdescription'],
     jq: ['file.jq'],
     jovial: ['file.jov', 'file.j73', 'file.jovial'],
@@ -602,6 +603,7 @@ def s:GetFilenameChecks(): dict<list<string>>
     radiance: ['file.rad', 'file.mat'],
     raku: ['file.pm6', 'file.p6', 'file.t6', 'file.pod6', 'file.raku', 'file.rakumod', 'file.rakudoc', 'file.rakutest'],
     raml: ['file.raml'],
+    rapid: ['file.sysx', 'file.Sysx', 'file.SysX', 'file.SYSx', 'file.SYSX', 'file.modx', 'file.Modx', 'file.ModX', 'file.MODx', 'file.MODX'],
     rasi: ['file.rasi'],
     ratpoison: ['.ratpoisonrc', 'ratpoisonrc'],
     rbs: ['file.rbs'],
@@ -634,6 +636,7 @@ def s:GetFilenameChecks(): dict<list<string>>
     rtf: ['file.rtf'],
     ruby: ['.irbrc', 'irbrc', '.irb_history', 'irb_history', 'file.rb', 'file.rbw', 'file.gemspec', 'file.ru', 'Gemfile', 'file.builder', 'file.rxml', 'file.rjs', 'file.rant', 'file.rake', 'rakefile', 'Rakefile', 'rantfile', 'Rantfile', 'rakefile-file', 'Rakefile-file', 'Puppetfile', 'Vagrantfile'],
     rust: ['file.rs'],
+    salt: ['file.sls'],
     samba: ['smb.conf'],
     sas: ['file.sas'],
     sass: ['file.sass'],
@@ -1155,15 +1158,14 @@ func Test_cfg_file()
   unlet g:filetype_cfg
 
   " RAPID cfg
-  let ext = 'cfg'
   for i in ['EIO', 'MMC', 'MOC', 'PROC', 'SIO', 'SYS']
-    call writefile([i .. ':CFG'], 'cfgfile.' .. ext)
-    execute "split cfgfile." .. ext
-    call assert_equal('rapid', &filetype)
-    bwipe!
-    call delete('cfgfile.' .. ext)
-    " check different case of file extension
-    let ext = substitute(ext, '\(\l\)', '\u\1', '')
+    for ext in ['cfg', 'Cfg', 'CFG']
+      call writefile([i .. ':CFG'], 'cfgfile.' .. ext)
+      execute "split cfgfile." .. ext
+      call assert_equal('rapid', &filetype)
+      bwipe!
+      call delete('cfgfile.' .. ext)
+    endfor
   endfor
 
   " clean up
