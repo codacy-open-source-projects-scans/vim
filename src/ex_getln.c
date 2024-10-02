@@ -4243,6 +4243,18 @@ f_getcmdpos(typval_T *argvars UNUSED, typval_T *rettv)
 }
 
 /*
+ * "getcmdprompt()" function
+ */
+    void
+f_getcmdprompt(typval_T *argvars UNUSED, typval_T *rettv)
+{
+    cmdline_info_T *p = get_ccline_ptr();
+    rettv->v_type = VAR_STRING;
+    rettv->vval.v_string = p != NULL && p->cmdprompt != NULL ?
+					    vim_strsave(p->cmdprompt) : NULL;
+}
+
+/*
  * "getcmdscreenpos()" function
  */
     void
@@ -4433,7 +4445,7 @@ did_set_cedit(optset_T *args UNUSED)
     else
     {
 	n = string_to_key(p_cedit, FALSE);
-	if (vim_isprintc(n))
+	if (n == 0 || vim_isprintc(n))
 	    return e_invalid_argument;
 	cedit_key = n;
     }

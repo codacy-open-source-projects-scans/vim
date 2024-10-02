@@ -301,6 +301,9 @@ endif
 " Busted (Lua unit testing framework - configuration files)
 au BufNewFile,BufRead .busted			setf lua
 
+" Bun history
+au BufNewFile,BufRead .bun_repl_history		setf javascript
+
 " Bundle config
 au BufNewFile,BufRead */.bundle/config			setf yaml
 
@@ -651,6 +654,9 @@ au BufNewFile,BufRead copyright
 au BufNewFile,BufRead */etc/apt/sources.list		setf debsources
 au BufNewFile,BufRead */etc/apt/sources.list.d/*.list	setf debsources
 au BufNewFile,BufRead */etc/apt/sources.list.d/*.sources	setf deb822sources
+
+" Deno history
+au BufNewFile,BufRead deno_history.txt		setf javascript
 
 " Deny hosts
 au BufNewFile,BufRead denyhosts.conf		setf denyhosts
@@ -1058,6 +1064,9 @@ au BufNewFile,BufRead init.trans,*/etc/translate-shell,.trans	setf clojure
 " HTML (.stm for server side, .shtml is server-side or superhtml)
 au BufNewFile,BufRead *.html,*.htm,*.shtml,*.stm  call dist#ft#FThtml()
 au BufNewFile,BufRead *.cshtml			setf html
+
+" HTTP request files
+au BufNewFile,BufRead *.http			setf http
 
 " HTML with Ruby - eRuby
 au BufNewFile,BufRead *.erb,*.rhtml		setf eruby
@@ -1631,7 +1640,11 @@ au BufNewFile,BufRead *.mm			call dist#ft#FTmm()
 au BufNewFile,BufRead *.nqc			setf nqc
 
 " notmuch
-au BufNewFile,BufRead .notmuch-config		setf dosini
+au BufNewFile,BufRead .notmuch-config{,.*}		setf dosini
+au BufNewFile,BufRead ~/.config/notmuch/*/config	setf dosini
+if exists('$XDG_CONFIG_HOME')
+  au BufNewFile,BufRead $XDG_CONFIG_HOME/notmuch/*/config setf dosini
+endif
 
 " NSE - Nmap Script Engine - uses Lua syntax
 au BufNewFile,BufRead *.nse			setf lua
