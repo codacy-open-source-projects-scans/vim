@@ -50,6 +50,7 @@ cmdline_fuzzy_completion_supported(expand_T *xp)
 	    && xp->xp_context != EXPAND_FILES
 	    && xp->xp_context != EXPAND_FILES_IN_PATH
 	    && xp->xp_context != EXPAND_FILETYPE
+	    && xp->xp_context != EXPAND_FINDFUNC
 	    && xp->xp_context != EXPAND_HELP
 	    && xp->xp_context != EXPAND_KEYMAP
 	    && xp->xp_context != EXPAND_OLD_SETTING
@@ -1418,7 +1419,8 @@ addstar(
 
 	// For help tags the translation is done in find_help_tags().
 	// For a tag pattern starting with "/" no translation is needed.
-	if (context == EXPAND_HELP
+	if (context == EXPAND_FINDFUNC
+		|| context == EXPAND_HELP
 		|| context == EXPAND_COLORS
 		|| context == EXPAND_COMPILER
 		|| context == EXPAND_OWNSYNTAX
@@ -2138,7 +2140,8 @@ set_context_by_cmdname(
 	case CMD_sfind:
 	case CMD_tabfind:
 	    if (xp->xp_context == EXPAND_FILES)
-		xp->xp_context = EXPAND_FILES_IN_PATH;
+		xp->xp_context = *get_findfunc() != NUL ? EXPAND_FINDFUNC
+							: EXPAND_FILES_IN_PATH;
 	    break;
 	case CMD_cd:
 	case CMD_chdir:
@@ -2850,10 +2853,10 @@ expand_files_and_dirs(
 	    }
     }
 
-    if (xp->xp_context == EXPAND_FILES_IN_PATH && *get_findexpr() != NUL)
+    if (xp->xp_context == EXPAND_FINDFUNC)
     {
 #ifdef FEAT_EVAL
-	ret = expand_findexpr(pat, matches, numMatches);
+	ret = expand_findfunc(pat, matches, numMatches);
 #endif
     }
     else
@@ -3119,6 +3122,7 @@ ExpandFromContext(
     if (xp->xp_context == EXPAND_FILES
 	    || xp->xp_context == EXPAND_DIRECTORIES
 	    || xp->xp_context == EXPAND_FILES_IN_PATH
+	    || xp->xp_context == EXPAND_FINDFUNC
 	    || xp->xp_context == EXPAND_DIRS_IN_CDPATH)
 	return expand_files_and_dirs(xp, pat, matches, numMatches, flags,
 								options);
