@@ -138,7 +138,7 @@ static int	undo_undoes = FALSE;
 
 static int	lastmark = 0;
 
-#if defined(U_DEBUG) || defined(PROTO)
+#if defined(U_DEBUG)
 /*
  * Check the undo structures for being valid.  Print a warning when something
  * looks wrong.
@@ -687,15 +687,6 @@ u_savecommon(
 	u_getbot();
     }
 
-#if !defined(UNIX) && !defined(MSWIN)
-	/*
-	 * With Amiga we can't handle big undo's, because
-	 * then u_alloc_line would have to allocate a block larger than 32K
-	 */
-    if (size >= 8000)
-	goto nomem;
-#endif
-
     /*
      * add lines in front of entry list
      */
@@ -769,7 +760,7 @@ nomem:
     return FAIL;
 }
 
-#if defined(FEAT_PERSISTENT_UNDO) || defined(PROTO)
+#if defined(FEAT_PERSISTENT_UNDO)
 
 # define UF_START_MAGIC	    "Vim\237UnDo\345"  // magic at start of undofile
 # define UF_START_MAGIC_LEN	9
@@ -3124,7 +3115,7 @@ ex_undolist(exarg_T *eap UNUSED)
 
 	    // we have to call STRLEN() here because add_time() does not report
 	    // the number of characters added.
-	    len += STRLEN(IObuff + len);
+	    len += (int)STRLEN(IObuff + len);
 	    if (uhp->uh_save_nr > 0)
 	    {
 		int n = (len >= 33) ? 0 : 33 - len;
@@ -3643,7 +3634,7 @@ curbufIsChanged(void)
     return bufIsChanged(curbuf);
 }
 
-#if defined(FEAT_EVAL) || defined(PROTO)
+#if defined(FEAT_EVAL)
 
 /*
  * For undotree(): Append the list of undo blocks at "first_uhp" to "list".

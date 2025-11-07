@@ -14,12 +14,7 @@
 #define USING_FLOAT_STUFF
 #include "vim.h"
 
-#if defined(FEAT_EVAL) || defined(PROTO)
-
-// When not generating protos this is included in proto.h
-#ifdef PROTO
-# include "vim9.h"
-#endif
+#if defined(FEAT_EVAL)
 
 // Functions defined with :def are stored in this growarray.
 // They are never removed, so that they can be found by index.
@@ -288,15 +283,6 @@ update_script_var_block_id(char_u *name, int block_id)
 }
 
 /*
- * Return TRUE if the script context is Vim9 script.
- */
-    int
-script_is_vim9(void)
-{
-    return SCRIPT_ITEM(current_sctx.sc_sid)->sn_version == SCRIPT_VERSION_VIM9;
-}
-
-/*
  * Lookup a variable (without s: prefix) in the current script.
  * "cctx" is NULL at the script level, "cstack" is NULL in a function.
  * Returns OK or FAIL.
@@ -306,7 +292,7 @@ script_var_exists(char_u *name, size_t len, cctx_T *cctx, cstack_T *cstack)
 {
     if (current_sctx.sc_sid <= 0)
 	return FAIL;
-    if (script_is_vim9())
+    if (current_script_is_vim9())
     {
 	// Check script variables that were visible where the function was
 	// defined.
@@ -524,8 +510,10 @@ use_typecheck(type_T *actual, type_T *expected)
 	return TRUE;
     if (actual->tt_type == VAR_OBJECT && expected->tt_type == VAR_OBJECT)
 	return TRUE;
-    if ((actual->tt_type == VAR_LIST || actual->tt_type == VAR_DICT)
-				       && actual->tt_type == expected->tt_type)
+    if ((actual->tt_type == VAR_LIST
+		|| actual->tt_type == VAR_TUPLE
+		|| actual->tt_type == VAR_DICT)
+	    && actual->tt_type == expected->tt_type)
 	// This takes care of a nested list or dict.
 	return use_typecheck(actual->tt_member, expected->tt_member);
     return FALSE;
@@ -1033,16 +1021,18 @@ compile_nested_function(exarg_T *eap, cctx_T *cctx, garray_T *lines_to_free)
     char_u	*name_end = to_name_end(eap->arg, TRUE);
     int		off;
     char_u	*func_name;
-    char_u	*lambda_name;
+    string_T	lambda_name;
     ufunc_T	*ufunc;
     int		r = FAIL;
     compiletype_T   compile_type;
     int		funcref_isn_idx = -1;
     lvar_T	*lvar = NULL;
+    char_u	*bracket_start = NULL;
 
     if (eap->forceit)
     {
-	emsg(_(e_cannot_use_bang_with_nested_def));
+	semsg(_(e_cannot_use_bang_with_nested_def_str),
+		eap->cmdidx == CMD_def ? ":def" : ":function");
 	return NULL;
     }
 
@@ -1053,6 +1043,14 @@ compile_nested_function(exarg_T *eap, cctx_T *cctx, garray_T *lines_to_free)
 	    ++name_end;
 	set_nextcmd(eap, name_end);
     }
+
+    if (*name_end == '<')
+    {
+	bracket_start = name_end;
+	if (skip_generic_func_type_args(&name_end) == FAIL)
+	    return NULL;
+    }
+
     if (name_end == name_start || *skipwhite(name_end) != '(')
     {
 	if (!ends_excmd2(name_start, name_end))
@@ -1070,6 +1068,11 @@ compile_nested_function(exarg_T *eap, cctx_T *cctx, garray_T *lines_to_free)
 	    return NULL;
 	return eap->nextcmd == NULL ? (char_u *)"" : eap->nextcmd;
     }
+
+    if (bracket_start != NULL)
+	// generic function.  The function name ends before the list of types
+	// (opening angle bracket).
+	name_end = bracket_start;
 
     // Only g:Func() can use a namespace.
     if (name_start[1] == ':' && !is_global)
@@ -1092,8 +1095,9 @@ compile_nested_function(exarg_T *eap, cctx_T *cctx, garray_T *lines_to_free)
 
     eap->forceit = FALSE;
     // We use the special <Lamba>99 name, but it's not really a lambda.
-    lambda_name = vim_strsave(get_lambda_name());
-    if (lambda_name == NULL)
+    lambda_name = get_lambda_name();
+    lambda_name.string = vim_strnsave(lambda_name.string, lambda_name.length);
+    if (lambda_name.string == NULL)
 	return NULL;
 
     // This may free the current line, make a copy of the name.
@@ -1109,7 +1113,8 @@ compile_nested_function(exarg_T *eap, cctx_T *cctx, garray_T *lines_to_free)
     int save_KeyTyped = KeyTyped;
     KeyTyped = FALSE;
 
-    ufunc = define_function(eap, lambda_name, lines_to_free, 0, NULL, 0);
+    ufunc = define_function(eap, lambda_name.string, lines_to_free, 0, NULL, 0,
+									cctx);
 
     KeyTyped = save_KeyTyped;
 
@@ -1145,9 +1150,10 @@ compile_nested_function(exarg_T *eap, cctx_T *cctx, garray_T *lines_to_free)
     // recursive call.
     if (is_global)
     {
-	r = generate_NEWFUNC(cctx, lambda_name, func_name);
+	r = generate_NEWFUNC(cctx, lambda_name.string, func_name);
 	func_name = NULL;
-	lambda_name = NULL;
+	lambda_name.string = NULL;
+	lambda_name.length = 0;
     }
     else
     {
@@ -1194,7 +1200,7 @@ compile_nested_function(exarg_T *eap, cctx_T *cctx, garray_T *lines_to_free)
     }
 
 theend:
-    vim_free(lambda_name);
+    vim_free(lambda_name.string);
     vim_free(func_name);
     return r == FAIL ? NULL : (char_u *)"";
 }
@@ -1371,7 +1377,7 @@ generate_loadvar(cctx_T *cctx, lhs_T *lhs)
 	case dest_script:
 	case dest_script_v9:
 	    res = compile_load_scriptvar(cctx,
-				  name + (name[1] == ':' ? 2 : 0), NULL, NULL);
+			    name + (name[1] == ':' ? 2 : 0), NULL, NULL, NULL);
 	    break;
 	case dest_env:
 	    // Include $ in the name here
@@ -1838,7 +1844,7 @@ compile_lhs_script_var(
     int		script_var = FALSE;
     imported_T	*import;
     char_u	*var_name;
-    int		var_name_len;
+    size_t	var_name_len;
 
     if (lhs->lhs_varlen > 1 && STRNCMP(var_start, "s:", 2) == 0)
 	script_namespace = TRUE;
@@ -2109,8 +2115,9 @@ compile_lhs_set_type(cctx_T *cctx, lhs_T *lhs, char_u *var_end, int is_decl)
 	}
 
 	p = skipwhite(var_end + 1);
-	lhs->lhs_type = parse_type(&p, cctx->ctx_type_list, TRUE);
-	if (lhs->lhs_type == NULL)
+	lhs->lhs_type = parse_type(&p, cctx->ctx_type_list, cctx->ctx_ufunc, cctx, TRUE);
+	if (lhs->lhs_type == NULL
+		|| !valid_declaration_type(lhs->lhs_type))
 	    return FAIL;
 
 	lhs->lhs_has_type = TRUE;
@@ -2281,7 +2288,7 @@ compile_lhs(
 	int	    oplen,
 	cctx_T	    *cctx)
 {
-    char_u	*var_end;
+    char_u	*var_end = NULL;
     int		is_decl = is_decl_command(cmdidx);
 
     if (lhs_init(lhs, var_start, is_decl, heredoc, &var_end) == FAIL)
@@ -2493,9 +2500,11 @@ compile_load_lhs(
 	lhs->lhs_type = cctx->ctx_type_stack.ga_len == 0 ? &t_void
 						  : get_type_on_stack(cctx, 0);
 
-	if (lhs->lhs_type->tt_type == VAR_OBJECT)
+	if (lhs->lhs_type->tt_type == VAR_CLASS
+		|| (lhs->lhs_type->tt_type == VAR_OBJECT
+		    && lhs->lhs_type != &t_object_any))
 	{
-	    // Check whether the object variable is modifiable
+	    // Check whether the class or object variable is modifiable
 	    if (!lhs_class_member_modifiable(lhs, var_start, cctx))
 		return FAIL;
 	}
@@ -2517,7 +2526,7 @@ compile_load_lhs(
 	return OK;
     }
 
-    return  generate_loadvar(cctx, lhs);
+    return generate_loadvar(cctx, lhs);
 }
 
 /*
@@ -2639,7 +2648,10 @@ compile_assign_unlet(
 	    && lhs->lhs_type != &t_blob
 	    && lhs->lhs_type != &t_any)
     {
-	semsg(_(e_cannot_use_range_with_assignment_str), var_start);
+	if (lhs->lhs_type->tt_type == VAR_TUPLE)
+	    emsg(_(e_cannot_slice_tuple));
+	else
+	    semsg(_(e_cannot_use_range_with_assignment_str), var_start);
 	return FAIL;
     }
 
@@ -2740,7 +2752,10 @@ compile_assign_unlet(
     }
     else
     {
-	emsg(_(e_indexable_type_required));
+	if (dest_type == VAR_TUPLE)
+	    emsg(_(e_tuple_is_immutable));
+	else
+	    emsg(_(e_indexable_type_required));
 	return FAIL;
     }
 
@@ -2781,6 +2796,9 @@ push_default_value(
 	    break;
 	case VAR_LIST:
 	    r = generate_NEWLIST(cctx, 0, FALSE);
+	    break;
+	case VAR_TUPLE:
+	    r = generate_NEWTUPLE(cctx, 0, FALSE);
 	    break;
 	case VAR_DICT:
 	    r = generate_NEWDICT(cctx, 0, FALSE);
@@ -3012,11 +3030,31 @@ compile_assign_list_check_rhs_type(cctx_T *cctx, cac_T *cac)
 	return FAIL;
     }
 
-    if (need_type(stacktype, &t_list_any, FALSE, -1, 0, cctx,
-						FALSE, FALSE) == FAIL)
+    if (stacktype->tt_type != VAR_LIST && stacktype->tt_type != VAR_TUPLE
+					&& stacktype->tt_type != VAR_ANY)
+    {
+	emsg(_(e_list_or_tuple_required));
+	return FAIL;
+    }
+
+    if (need_type(stacktype,
+		  stacktype->tt_type == VAR_TUPLE ? &t_tuple_any : &t_list_any,
+		  FALSE, -1, 0, cctx, FALSE, FALSE) == FAIL)
 	return FAIL;
 
-    if (stacktype->tt_member != NULL)
+    if (stacktype->tt_type == VAR_TUPLE)
+    {
+	if (stacktype->tt_argcount != 1)
+	    cac->cac_rhs_type = &t_any;
+	else
+	{
+	    if (stacktype->tt_flags & TTFLAG_VARARGS)
+		cac->cac_rhs_type = stacktype->tt_args[0]->tt_member;
+	    else
+		cac->cac_rhs_type = stacktype->tt_args[0];
+	}
+    }
+    else if (stacktype->tt_member != NULL)
 	cac->cac_rhs_type = stacktype->tt_member;
 
     return OK;
@@ -3040,7 +3078,7 @@ compile_assign_list_check_length(cctx_T *cctx, cac_T *cac)
 	isn_T	*isn = ((isn_T *)cac->cac_instr->ga_data) +
 						cac->cac_instr->ga_len - 1;
 
-	if (isn->isn_type == ISN_NEWLIST)
+	if (isn->isn_type == ISN_NEWLIST || isn->isn_type == ISN_NEWTUPLE)
 	{
 	    did_check = TRUE;
 	    if (cac->cac_semicolon ?
@@ -3396,6 +3434,27 @@ compile_assign_rhs(cctx_T *cctx, cac_T *cac)
 }
 
 /*
+ * Returns OK if "type" supports compound operator "op_arg" (e.g. +=, -=, %=,
+ * etc.).  Compound operators are not supported with a tuple and a dict.
+ * Returns FAIL if compound operator is not supported.
+ */
+    static int
+check_type_supports_compound_op(type_T *type, char_u op_arg)
+{
+    if (type->tt_type == VAR_TUPLE || type->tt_type == VAR_DICT)
+    {
+	char_u	op[2];
+
+	op[0] = op_arg;
+	op[1] = NUL;
+	semsg(_(e_wrong_variable_type_for_str_equal), op);
+	return FAIL;
+    }
+
+    return OK;
+}
+
+/*
  * Compile a compound op assignment statement (+=, -=, *=, %=, etc.)
  */
     static int
@@ -3405,15 +3464,30 @@ compile_assign_compound_op(cctx_T *cctx, cac_T *cac)
     type_T	    *expected;
     type_T	    *stacktype = NULL;
 
+    if (cac->cac_lhs.lhs_type->tt_type == VAR_TUPLE
+	    && check_type_supports_compound_op(cac->cac_lhs.lhs_type,
+							*cac->cac_op) == FAIL)
+	return FAIL;
+
     if (*cac->cac_op == '.')
     {
-	if (may_generate_2STRING(-1, TOSTRING_NONE, cctx) == FAIL)
+	expected = lhs->lhs_member_type;
+	stacktype = get_type_on_stack(cctx, 0);
+	if (expected != &t_string
+		&& need_type(stacktype, expected, FALSE, -1, 0, cctx,
+					FALSE, FALSE) == FAIL)
+	    return FAIL;
+	else if (may_generate_2STRING(-1, TOSTRING_NONE, cctx) == FAIL)
 	    return FAIL;
     }
     else
     {
 	expected = lhs->lhs_member_type;
 	stacktype = get_type_on_stack(cctx, 0);
+
+	if (check_type_supports_compound_op(expected, *cac->cac_op) == FAIL)
+	    return FAIL;
+
 	if (
 		// If variable is float operation with number is OK.
 		!(expected == &t_float && (stacktype == &t_number
@@ -3483,8 +3557,11 @@ compile_assign_generate_store(cctx_T *cctx, cac_T *cac)
 		&& lhs->lhs_type->tt_member != NULL
 		&& lhs->lhs_type->tt_member != &t_any
 		&& lhs->lhs_type->tt_member != &t_unknown)
-	    // Set the type in the list or dict, so that it can be checked,
-	    // also in legacy script.
+	    // Set the type in the list or dict, so that it can be
+	    // checked, also in legacy script.
+	    generate_SETTYPE(cctx, lhs->lhs_type);
+	else if (lhs->lhs_type->tt_type == VAR_TUPLE
+					&& lhs->lhs_type->tt_argcount != 0)
 	    generate_SETTYPE(cctx, lhs->lhs_type);
 	else if (inferred_type != NULL
 		&& (inferred_type->tt_type == VAR_DICT
@@ -3492,8 +3569,12 @@ compile_assign_generate_store(cctx_T *cctx, cac_T *cac)
 		&& inferred_type->tt_member != NULL
 		&& inferred_type->tt_member != &t_unknown
 		&& inferred_type->tt_member != &t_any)
-	    // Set the type in the list or dict, so that it can be checked,
-	    // also in legacy script.
+	    // Set the type in the list or dict, so that it can be
+	    // checked, also in legacy script.
+	    generate_SETTYPE(cctx, inferred_type);
+	else if (inferred_type != NULL
+				&& inferred_type->tt_type == VAR_TUPLE
+				&& inferred_type->tt_argcount > 0)
 	    generate_SETTYPE(cctx, inferred_type);
 
 	if (!cac->cac_skip_store &&
@@ -3827,6 +3908,36 @@ get_compile_type(ufunc_T *ufunc)
     return CT_NONE;
 }
 
+/*
+ * Free the compiled instructions saved for a def function.  This is used when
+ * compiling a def function and the function was compiled before.
+ * The index is reused.
+ */
+    static void
+clear_def_function(ufunc_T *ufunc, compiletype_T compile_type)
+{
+    isn_T	*instr_dest = NULL;
+    dfunc_T	*dfunc;
+
+    dfunc = ((dfunc_T *)def_functions.ga_data) + ufunc->uf_dfunc_idx;
+
+    switch (compile_type)
+    {
+	case CT_PROFILE:
+#ifdef FEAT_PROFILE
+	    instr_dest = dfunc->df_instr_prof; break;
+#endif
+	case CT_NONE:   instr_dest = dfunc->df_instr; break;
+	case CT_DEBUG:  instr_dest = dfunc->df_instr_debug; break;
+    }
+
+    if (instr_dest != NULL)
+	// Was compiled in this mode before: Free old instructions.
+	delete_def_function_contents(dfunc, FALSE);
+
+    ga_clear_strings(&dfunc->df_var_names);
+    dfunc->df_defer_var_idx = 0;
+}
 
 /*
  * Add a function to the list of :def functions.
@@ -3854,11 +3965,65 @@ add_def_function(ufunc_T *ufunc)
     dfunc->df_idx = def_functions.ga_len;
     ufunc->uf_dfunc_idx = dfunc->df_idx;
     dfunc->df_ufunc = ufunc;
-    dfunc->df_name = vim_strsave(ufunc->uf_name);
+    dfunc->df_name = vim_strnsave(ufunc->uf_name, ufunc->uf_namelen);
     ga_init2(&dfunc->df_var_names, sizeof(char_u *), 10);
     ++dfunc->df_refcount;
     ++def_functions.ga_len;
     return OK;
+}
+
+    static int
+compile_dfunc_ufunc_init(
+    ufunc_T		*ufunc,
+    cctx_T		*outer_cctx,
+    compiletype_T	compile_type,
+    int			*new_def_function)
+{
+    // When using a function that was compiled before: Free old instructions.
+    // The index is reused.  Otherwise add a new entry in "def_functions".
+    if (ufunc->uf_dfunc_idx > 0)
+	clear_def_function(ufunc, compile_type);
+    else
+    {
+	if (add_def_function(ufunc) == FAIL)
+	    return FAIL;
+
+	*new_def_function = TRUE;
+    }
+
+    if ((ufunc->uf_flags & FC_CLOSURE) && outer_cctx == NULL)
+    {
+	semsg(_(e_compiling_closure_without_context_str),
+						printable_func_name(ufunc));
+	return FAIL;
+    }
+
+    ufunc->uf_def_status = UF_COMPILING;
+
+    return OK;
+}
+
+/*
+ * Initialize the compilation context for compiling a def function.
+ */
+    static void
+compile_dfunc_cctx_init(
+    cctx_T		*cctx,
+    cctx_T		*outer_cctx,
+    ufunc_T		*ufunc,
+    compiletype_T	compile_type)
+{
+    CLEAR_FIELD(*cctx);
+
+    cctx->ctx_compile_type = compile_type;
+    cctx->ctx_ufunc = ufunc;
+    cctx->ctx_lnum = -1;
+    cctx->ctx_outer = outer_cctx;
+    ga_init2(&cctx->ctx_locals, sizeof(lvar_T), 10);
+    // Each entry on the type stack consists of two type pointers.
+    ga_init2(&cctx->ctx_type_stack, sizeof(type2_T), 50);
+    cctx->ctx_type_list = &ufunc->uf_type_list;
+    ga_init2(&cctx->ctx_instr, sizeof(isn_T), 50);
 }
 
 /*
@@ -3883,9 +4048,34 @@ obj_constructor_prologue(ufunc_T *ufunc, cctx_T *cctx)
 
 	if (m->ocm_init != NULL)
 	{
-	    char_u *expr = m->ocm_init;
+	    char_u	*expr = m->ocm_init;
+	    sctx_T	save_current_sctx;
+	    int		change_sctx = FALSE;
 
-	    if (compile_expr0(&expr, cctx) == FAIL)
+	    // If the member variable initialization script context is
+	    // different from the current script context, then change it.
+	    if (current_sctx.sc_sid != m->ocm_init_sctx.sc_sid)
+		change_sctx = TRUE;
+
+	    if (change_sctx)
+	    {
+		// generate an instruction to change the script context to the
+		// member variable initialization script context.
+		save_current_sctx = current_sctx;
+		current_sctx = m->ocm_init_sctx;
+		generate_SCRIPTCTX_SET(cctx, current_sctx);
+	    }
+
+	    int r = compile_expr0(&expr, cctx);
+
+	    if (change_sctx)
+	    {
+		// restore the previous script context
+		current_sctx = save_current_sctx;
+		generate_SCRIPTCTX_SET(cctx, current_sctx);
+	    }
+
+	    if (r == FAIL)
 		return FAIL;
 
 	    if (!ends_excmd2(m->ocm_init, expr))
@@ -3918,13 +4108,15 @@ obj_constructor_prologue(ufunc_T *ufunc, cctx_T *cctx)
 	else
 	    push_default_value(cctx, m->ocm_type->tt_type, FALSE, NULL);
 
-	if ((m->ocm_type->tt_type == VAR_DICT
-		    || m->ocm_type->tt_type == VAR_LIST)
-		&& m->ocm_type->tt_member != NULL
-		&& m->ocm_type->tt_member != &t_any
-		&& m->ocm_type->tt_member != &t_unknown)
-	    // Set the type in the list or dict, so that it can be checked,
-	    // also in legacy script.
+	if (((m->ocm_type->tt_type == VAR_DICT
+			|| m->ocm_type->tt_type == VAR_LIST)
+		    && m->ocm_type->tt_member != NULL
+		    && m->ocm_type->tt_member != &t_any
+		    && m->ocm_type->tt_member != &t_unknown)
+		|| (m->ocm_type->tt_type == VAR_TUPLE
+		    && m->ocm_type->tt_argcount > 0))
+	    // Set the type in the list, tuple or dict, so that it can be
+	    // checked, also in legacy script.
 	    generate_SETTYPE(cctx, m->ocm_type);
 
 	generate_STORE_THIS(cctx, i);
@@ -3964,8 +4156,8 @@ obj_method_prologue(ufunc_T *ufunc, cctx_T *cctx)
     static int
 compile_def_function_default_args(
     ufunc_T	*ufunc,
-    cctx_T	*cctx,
-    garray_T	*instr)
+    garray_T	*instr,
+    cctx_T	*cctx)
 {
     int	count = ufunc->uf_def_args.ga_len;
     int	first_def_arg = ufunc->uf_args.ga_len - count;
@@ -4036,11 +4228,11 @@ compile_def_function_default_args(
  */
     static int
 compile_def_function_body(
-    cctx_T	*cctx,
     int		last_func_lnum,
     int		check_return_type,
     garray_T	*lines_to_free,
-    char	**errormsg)
+    char	**errormsg,
+    cctx_T	*cctx)
 {
     char_u	*line = NULL;
     char_u	*p;
@@ -4323,7 +4515,16 @@ compile_def_function_body(
 				     cctx->ctx_had_return ? "return" : "throw");
 	    return FAIL;
 	}
-	cctx->ctx_had_throw = FALSE;
+
+	// When processing the end of an if-else block, don't clear the
+	// "ctx_had_throw" flag.  If an if-else block ends in a "throw"
+	// statement, then it is considered to end in a "return" statement.
+	// The "ctx_had_throw" is cleared immediately after processing the
+	// if-else block ending statement.
+	// Otherwise, clear the "had_throw" flag.
+	if (ea.cmdidx != CMD_else && ea.cmdidx != CMD_elseif
+						&& ea.cmdidx != CMD_endif)
+	    cctx->ctx_had_throw = FALSE;
 
 	p = skipwhite(p);
 	if (ea.cmdidx != CMD_SIZE
@@ -4390,13 +4591,16 @@ compile_def_function_body(
 	    case CMD_elseif:
 		    line = compile_elseif(p, cctx);
 		    cctx->ctx_had_return = FALSE;
+		    cctx->ctx_had_throw = FALSE;
 		    break;
 	    case CMD_else:
 		    line = compile_else(p, cctx);
 		    cctx->ctx_had_return = FALSE;
+		    cctx->ctx_had_throw = FALSE;
 		    break;
 	    case CMD_endif:
 		    line = compile_endif(p, cctx);
+		    cctx->ctx_had_throw = FALSE;
 		    break;
 
 	    case CMD_while:
@@ -4471,7 +4675,12 @@ compile_def_function_body(
 
 	    case CMD_put:
 		    ea.cmd = cmd;
-		    line = compile_put(p, &ea, cctx);
+		    line = compile_put(p, &ea, cctx, FALSE);
+		    break;
+
+	    case CMD_iput:
+		    ea.cmd = cmd;
+		    line = compile_put(p, &ea, cctx, TRUE);
 		    break;
 
 	    case CMD_substitute:
@@ -4556,6 +4765,14 @@ compile_def_function_body(
 		    emsg(_(e_class_can_only_be_used_in_script));
 		    return FAIL;
 
+	    case CMD_enum:
+		    emsg(_(e_enum_can_only_be_used_in_script));
+		    return FAIL;
+
+	    case CMD_interface:
+		    emsg(_(e_interface_can_only_be_used_in_script));
+		    return FAIL;
+
 	    case CMD_type:
 		    emsg(_(e_type_can_only_be_used_in_script));
 		    return FAIL;
@@ -4586,6 +4803,167 @@ nextline:
     } // END of the loop over all the function body lines.
 
     return OK;
+}
+
+/*
+ * Returns TRUE if the end of a scope (if, while, for, block) is missing.
+ * Called after compiling a def function body.
+ */
+    static int
+compile_dfunc_scope_end_missing(cctx_T *cctx)
+{
+    if (cctx->ctx_scope == NULL)
+	return FALSE;
+
+    switch (cctx->ctx_scope->se_type)
+    {
+	case IF_SCOPE:
+	    emsg(_(e_missing_endif));
+	    break;
+	case WHILE_SCOPE:
+	    emsg(_(e_missing_endwhile));
+	    break;
+	case FOR_SCOPE:
+	    emsg(_(e_missing_endfor));
+	    break;
+	case TRY_SCOPE:
+	    emsg(_(e_missing_endtry));
+	    break;
+	case BLOCK_SCOPE:
+	    // end block scope from :try (maybe)
+	    compile_endblock(cctx);
+	    if (cctx->ctx_scope != NULL
+		    && cctx->ctx_scope->se_type == TRY_SCOPE)
+		emsg(_(e_missing_endtry));
+	    else
+		emsg(_(e_missing_rcurly));
+	    break;
+	default:
+	    emsg(_(e_missing_rcurly));
+    }
+    return TRUE;
+}
+
+/*
+ * When compiling a def function, if it doesn't have an explicit return
+ * statement, then generate a default return instruction.  For an object
+ * constructor, return the object.
+ */
+    static int
+compile_dfunc_generate_default_return(ufunc_T *ufunc, cctx_T *cctx)
+{
+    // TODO: if a function ends in "throw" but there was a return elsewhere we
+    // should not assume the return type is "void".
+    if (cctx->ctx_had_return || cctx->ctx_had_throw)
+	return OK;
+
+    if (ufunc->uf_ret_type->tt_type == VAR_UNKNOWN)
+	ufunc->uf_ret_type = &t_void;
+    else if (ufunc->uf_ret_type->tt_type != VAR_VOID
+					&& !IS_CONSTRUCTOR_METHOD(ufunc))
+    {
+	emsg(_(e_missing_return_statement));
+	return FAIL;
+    }
+
+    // Return void if there is no return at the end.
+    // For a constructor return the object.
+    if (IS_CONSTRUCTOR_METHOD(ufunc))
+    {
+	generate_instr(cctx, ISN_RETURN_OBJECT);
+	ufunc->uf_ret_type = &ufunc->uf_class->class_object_type;
+    }
+    else
+	generate_instr(cctx, ISN_RETURN_VOID);
+
+    return OK;
+}
+
+/*
+ * Perform the chores after successfully compiling a def function.
+ */
+    static void
+compile_dfunc_epilogue(
+    cctx_T	*outer_cctx,
+    ufunc_T	*ufunc,
+    garray_T	*instr,
+    cctx_T	*cctx)
+{
+    dfunc_T	*dfunc;
+
+    dfunc = ((dfunc_T *)def_functions.ga_data) + ufunc->uf_dfunc_idx;
+    dfunc->df_deleted = FALSE;
+    dfunc->df_script_seq = current_sctx.sc_seq;
+
+#ifdef FEAT_PROFILE
+    if (cctx->ctx_compile_type == CT_PROFILE)
+    {
+	dfunc->df_instr_prof = instr->ga_data;
+	dfunc->df_instr_prof_count = instr->ga_len;
+    }
+    else
+#endif
+	if (cctx->ctx_compile_type == CT_DEBUG)
+	{
+	    dfunc->df_instr_debug = instr->ga_data;
+	    dfunc->df_instr_debug_count = instr->ga_len;
+	}
+	else
+	{
+	    dfunc->df_instr = instr->ga_data;
+	    dfunc->df_instr_count = instr->ga_len;
+	}
+    dfunc->df_varcount = dfunc->df_var_names.ga_len;
+    dfunc->df_has_closure = cctx->ctx_has_closure;
+
+    if (cctx->ctx_outer_used)
+    {
+	ufunc->uf_flags |= FC_CLOSURE;
+	if (outer_cctx != NULL)
+	    ++outer_cctx->ctx_closure_count;
+    }
+
+    ufunc->uf_def_status = UF_COMPILED;
+}
+
+/*
+ * Perform the cleanup when a def function compilation fails.
+ */
+    static void
+compile_dfunc_ufunc_cleanup(
+    ufunc_T	*ufunc,
+    garray_T	*instr,
+    int		new_def_function,
+    char	*errormsg,
+    int		did_emsg_before,
+    cctx_T	*cctx)
+{
+    dfunc_T	*dfunc;
+
+    dfunc = ((dfunc_T *)def_functions.ga_data) + ufunc->uf_dfunc_idx;
+
+    // Compiling aborted, free the generated instructions.
+    clear_instr_ga(instr);
+    VIM_CLEAR(dfunc->df_name);
+    ga_clear_strings(&dfunc->df_var_names);
+
+    // If using the last entry in the table and it was added above, we
+    // might as well remove it.
+    if (!dfunc->df_deleted && new_def_function
+			&& ufunc->uf_dfunc_idx == def_functions.ga_len - 1)
+    {
+	--def_functions.ga_len;
+	ufunc->uf_dfunc_idx = 0;
+    }
+    ufunc->uf_def_status = UF_COMPILE_ERROR;
+
+    while (cctx->ctx_scope != NULL)
+	drop_scope(cctx);
+
+    if (errormsg != NULL)
+	emsg(errormsg);
+    else if (did_emsg == did_emsg_before)
+	emsg(_(e_compiling_def_function_failed));
 }
 
 /*
@@ -4624,56 +5002,13 @@ compile_def_function(
     // allocated lines are freed at the end
     ga_init2(&lines_to_free, sizeof(char_u *), 50);
 
-    // When using a function that was compiled before: Free old instructions.
-    // The index is reused.  Otherwise add a new entry in "def_functions".
-    if (ufunc->uf_dfunc_idx > 0)
-    {
-	dfunc_T *dfunc = ((dfunc_T *)def_functions.ga_data)
-							 + ufunc->uf_dfunc_idx;
-	isn_T	*instr_dest = NULL;
-
-	switch (compile_type)
-	{
-	    case CT_PROFILE:
-#ifdef FEAT_PROFILE
-			    instr_dest = dfunc->df_instr_prof; break;
-#endif
-	    case CT_NONE:   instr_dest = dfunc->df_instr; break;
-	    case CT_DEBUG:  instr_dest = dfunc->df_instr_debug; break;
-	}
-	if (instr_dest != NULL)
-	    // Was compiled in this mode before: Free old instructions.
-	    delete_def_function_contents(dfunc, FALSE);
-	ga_clear_strings(&dfunc->df_var_names);
-	dfunc->df_defer_var_idx = 0;
-    }
-    else
-    {
-	if (add_def_function(ufunc) == FAIL)
-	    return FAIL;
-	new_def_function = TRUE;
-    }
-
-    if ((ufunc->uf_flags & FC_CLOSURE) && outer_cctx == NULL)
-    {
-	semsg(_(e_compiling_closure_without_context_str),
-						   printable_func_name(ufunc));
+    // Initialize the ufunc and the compilation context
+    if (compile_dfunc_ufunc_init(ufunc, outer_cctx, compile_type,
+						&new_def_function) == FAIL)
 	return FAIL;
-    }
 
-    ufunc->uf_def_status = UF_COMPILING;
+    compile_dfunc_cctx_init(&cctx, outer_cctx, ufunc, compile_type);
 
-    CLEAR_FIELD(cctx);
-
-    cctx.ctx_compile_type = compile_type;
-    cctx.ctx_ufunc = ufunc;
-    cctx.ctx_lnum = -1;
-    cctx.ctx_outer = outer_cctx;
-    ga_init2(&cctx.ctx_locals, sizeof(lvar_T), 10);
-    // Each entry on the type stack consists of two type pointers.
-    ga_init2(&cctx.ctx_type_stack, sizeof(type2_T), 50);
-    cctx.ctx_type_list = &ufunc->uf_type_list;
-    ga_init2(&cctx.ctx_instr, sizeof(isn_T), 50);
     instr = &cctx.ctx_instr;
 
     // Set the context to the function, it may be compiled when called from
@@ -4691,6 +5026,7 @@ compile_def_function(
 	estack_push_ufunc(ufunc, 1);
     estack_compiling = TRUE;
 
+    // Make sure arguments don't shadow variables in the context
     if (check_args_shadowing(ufunc, &cctx) == FAIL)
 	goto erret;
 
@@ -4701,13 +5037,14 @@ compile_def_function(
 	    goto erret;
 
     if (ufunc->uf_def_args.ga_len > 0)
-	if (compile_def_function_default_args(ufunc, &cctx, instr) == FAIL)
+	if (compile_def_function_default_args(ufunc, instr, &cctx) == FAIL)
 	    goto erret;
     ufunc->uf_args_visible = ufunc->uf_args.ga_len;
 
-    // Compiling a function in an interface is done to get the function type.
-    // No code is actually compiled.
-    if (ufunc->uf_class != NULL && IS_INTERFACE(ufunc->uf_class))
+    // Compiling an abstract method or a function in an interface is done to
+    // get the function type.  No code is actually compiled.
+    if (ufunc->uf_class != NULL && (IS_INTERFACE(ufunc->uf_class)
+						|| IS_ABSTRACT_METHOD(ufunc)))
     {
 	ufunc->uf_def_status = UF_NOT_COMPILED;
 	ret = OK;
@@ -4715,116 +5052,29 @@ compile_def_function(
     }
 
     // compile the function body
-    if (compile_def_function_body(&cctx, ufunc->uf_lines.ga_len,
-		check_return_type, &lines_to_free, &errormsg) == FAIL)
+    if (compile_def_function_body(ufunc->uf_lines.ga_len, check_return_type,
+				&lines_to_free, &errormsg, &cctx) == FAIL)
 	goto erret;
 
-    if (cctx.ctx_scope != NULL)
-    {
-	if (cctx.ctx_scope->se_type == IF_SCOPE)
-	    emsg(_(e_missing_endif));
-	else if (cctx.ctx_scope->se_type == WHILE_SCOPE)
-	    emsg(_(e_missing_endwhile));
-	else if (cctx.ctx_scope->se_type == FOR_SCOPE)
-	    emsg(_(e_missing_endfor));
-	else
-	    emsg(_(e_missing_rcurly));
+    if (compile_dfunc_scope_end_missing(&cctx))
 	goto erret;
-    }
 
-    // TODO: if a function ends in "throw" but there was a return elsewhere we
-    // should not assume the return type is "void".
-    if (!cctx.ctx_had_return && !cctx.ctx_had_throw)
-    {
-	if (ufunc->uf_ret_type->tt_type == VAR_UNKNOWN)
-	    ufunc->uf_ret_type = &t_void;
-	else if (ufunc->uf_ret_type->tt_type != VAR_VOID
-		&& !IS_CONSTRUCTOR_METHOD(ufunc))
-	{
-	    emsg(_(e_missing_return_statement));
-	    goto erret;
-	}
-
-	// Return void if there is no return at the end.
-	// For a constructor return the object.
-	if (IS_CONSTRUCTOR_METHOD(ufunc))
-	{
-	    generate_instr(&cctx, ISN_RETURN_OBJECT);
-	    ufunc->uf_ret_type = &ufunc->uf_class->class_object_type;
-	}
-	else
-	    generate_instr(&cctx, ISN_RETURN_VOID);
-    }
+    if (compile_dfunc_generate_default_return(ufunc, &cctx) == FAIL)
+	goto erret;
 
     // When compiled with ":silent!" and there was an error don't consider the
     // function compiled.
     if (emsg_silent == 0 || did_emsg_silent == did_emsg_silent_before)
-    {
-	dfunc_T	*dfunc = ((dfunc_T *)def_functions.ga_data)
-							 + ufunc->uf_dfunc_idx;
-	dfunc->df_deleted = FALSE;
-	dfunc->df_script_seq = current_sctx.sc_seq;
-#ifdef FEAT_PROFILE
-	if (cctx.ctx_compile_type == CT_PROFILE)
-	{
-	    dfunc->df_instr_prof = instr->ga_data;
-	    dfunc->df_instr_prof_count = instr->ga_len;
-	}
-	else
-#endif
-	if (cctx.ctx_compile_type == CT_DEBUG)
-	{
-	    dfunc->df_instr_debug = instr->ga_data;
-	    dfunc->df_instr_debug_count = instr->ga_len;
-	}
-	else
-	{
-	    dfunc->df_instr = instr->ga_data;
-	    dfunc->df_instr_count = instr->ga_len;
-	}
-	dfunc->df_varcount = dfunc->df_var_names.ga_len;
-	dfunc->df_has_closure = cctx.ctx_has_closure;
-
-	if (cctx.ctx_outer_used)
-	{
-	    ufunc->uf_flags |= FC_CLOSURE;
-	    if (outer_cctx != NULL)
-		++outer_cctx->ctx_closure_count;
-	}
-
-	ufunc->uf_def_status = UF_COMPILED;
-    }
+	compile_dfunc_epilogue(outer_cctx, ufunc, instr, &cctx);
 
     ret = OK;
 
 erret:
     if (ufunc->uf_def_status == UF_COMPILING)
     {
-	dfunc_T	*dfunc = ((dfunc_T *)def_functions.ga_data)
-							 + ufunc->uf_dfunc_idx;
-
-	// Compiling aborted, free the generated instructions.
-	clear_instr_ga(instr);
-	VIM_CLEAR(dfunc->df_name);
-	ga_clear_strings(&dfunc->df_var_names);
-
-	// If using the last entry in the table and it was added above, we
-	// might as well remove it.
-	if (!dfunc->df_deleted && new_def_function
-			    && ufunc->uf_dfunc_idx == def_functions.ga_len - 1)
-	{
-	    --def_functions.ga_len;
-	    ufunc->uf_dfunc_idx = 0;
-	}
-	ufunc->uf_def_status = UF_COMPILE_ERROR;
-
-	while (cctx.ctx_scope != NULL)
-	    drop_scope(&cctx);
-
-	if (errormsg != NULL)
-	    emsg(errormsg);
-	else if (did_emsg == did_emsg_before)
-	    emsg(_(e_compiling_def_function_failed));
+	// compilation failed. do cleanup.
+	compile_dfunc_ufunc_cleanup(ufunc, instr, new_def_function,
+				    errormsg, did_emsg_before, &cctx);
     }
 
     if (cctx.ctx_redir_lhs.lhs_name != NULL)
@@ -4982,7 +5232,7 @@ link_def_function(ufunc_T *ufunc)
     ++dfunc->df_refcount;
 }
 
-#if defined(EXITFREE) || defined(PROTO)
+#if defined(EXITFREE)
 /*
  * Free all functions defined with ":def".
  */

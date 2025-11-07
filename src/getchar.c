@@ -82,7 +82,13 @@ static int	KeyNoremap = 0;	    // remapping flags
 // typebuf.tb_buf has three parts: room in front (for result of mappings), the
 // middle for typeahead and room for new characters (which needs to be 3 *
 // MAXMAPLEN for the Amiga).
+#ifdef FEAT_NORMAL
+// Add extra space to handle large OSC responses in bigger chunks (improve
+// performance)
+#define TYPELEN_INIT	(5 * (MAXMAPLEN + 3) + 2048)
+#else // Tiny version
 #define TYPELEN_INIT	(5 * (MAXMAPLEN + 3))
+#endif
 static char_u	typebuf_init[TYPELEN_INIT];	// initial typebuf.tb_buf
 static char_u	noremapbuf_init[TYPELEN_INIT];	// initial typebuf.tb_noremap
 
@@ -171,6 +177,9 @@ get_recorded(void)
     size_t	len;
 
     p = get_buffcont(&recordbuff, TRUE, &len);
+    if (p == NULL)
+	return NULL;
+
     free_buff(&recordbuff);
 
     /*
@@ -197,10 +206,13 @@ get_recorded(void)
  * Return the contents of the redo buffer as a single string.
  * K_SPECIAL and CSI in the returned string are escaped.
  */
-    char_u *
+    string_T
 get_inserted(void)
 {
-    return get_buffcont(&redobuff, FALSE, NULL);
+    size_t len = 0;
+    char_u *str = get_buffcont(&redobuff, FALSE, &len);
+    string_T ret = { str, len };
+    return ret;
 }
 
 /*
@@ -424,7 +436,7 @@ stuff_empty(void)
 	 && readbuf2.bh_first.b_next == NULL);
 }
 
-#if defined(FEAT_EVAL) || defined(PROTO)
+#if defined(FEAT_EVAL)
 /*
  * Return TRUE if readbuf1 is empty.  There may still be redo characters in
  * redbuf2.
@@ -699,13 +711,13 @@ stuffRedoReadbuff(char_u *s)
     add_buff(&readbuf2, s, -1L);
 }
 
-    static void
+    void
 stuffReadbuffLen(char_u *s, long len)
 {
     add_buff(&readbuf1, s, len);
 }
 
-#if defined(FEAT_EVAL) || defined(PROTO)
+#if defined(FEAT_EVAL)
 /*
  * Stuff "s" into the stuff buffer, leaving special key codes unmodified and
  * escaping other K_SPECIAL and CSI bytes.
@@ -1688,7 +1700,7 @@ closescript(void)
 	--curscript;
 }
 
-#if defined(EXITFREE) || defined(PROTO)
+#if defined(EXITFREE)
     void
 close_all_scripts(void)
 {
@@ -2323,7 +2335,7 @@ vpeekc(void)
     return vgetorpeek(FALSE);
 }
 
-#if defined(FEAT_TERMRESPONSE) || defined(FEAT_TERMINAL) || defined(PROTO)
+#if defined(FEAT_TERMRESPONSE) || defined(FEAT_TERMINAL)
 /*
  * Like vpeekc(), but don't allow mapping.  Do allow checking for terminal
  * codes.
@@ -2379,17 +2391,51 @@ char_avail(void)
     return (retval != NUL);
 }
 
-#if defined(FEAT_EVAL) || defined(PROTO)
+#if defined(FEAT_EVAL)
 /*
  * "getchar()" and "getcharstr()" functions
  */
     static void
-getchar_common(typval_T *argvars, typval_T *rettv)
+getchar_common(typval_T *argvars, typval_T *rettv, int allow_number)
 {
-    varnumber_T		n;
+    varnumber_T		n = 0;
+    int			called_emsg_start = called_emsg;
     int			error = FALSE;
+    int			simplify = TRUE;
+    char_u		cursor_flag = 'm';
 
-    if (in_vim9script() && check_for_opt_bool_arg(argvars, 0) == FAIL)
+    if ((in_vim9script()
+		&& check_for_opt_bool_or_number_arg(argvars, 0) == FAIL)
+	    || (argvars[0].v_type != VAR_UNKNOWN
+		    && check_for_opt_dict_arg(argvars, 1) == FAIL))
+	return;
+
+    if (argvars[0].v_type != VAR_UNKNOWN && argvars[1].v_type == VAR_DICT)
+    {
+	dict_T		*d = argvars[1].vval.v_dict;
+	char_u		*cursor_str;
+
+	if (allow_number)
+	    allow_number = dict_get_bool(d, "number", TRUE);
+	else if (dict_has_key(d, "number"))
+	    semsg(_(e_invalid_argument_str), "number");
+
+	simplify = dict_get_bool(d, "simplify", TRUE);
+
+	cursor_str = dict_get_string(d, "cursor", FALSE);
+	if (cursor_str != NULL)
+	{
+	    if (STRCMP(cursor_str, "hide") != 0
+		    && STRCMP(cursor_str, "keep") != 0
+		    && STRCMP(cursor_str, "msg") != 0)
+		semsg(_(e_invalid_value_for_argument_str_str), "cursor",
+								   cursor_str);
+	    else
+		cursor_flag = cursor_str[0];
+	}
+    }
+
+    if (called_emsg != called_emsg_start)
 	return;
 
 #ifdef MESSAGE_QUEUE
@@ -2399,14 +2445,20 @@ getchar_common(typval_T *argvars, typval_T *rettv)
     parse_queued_messages();
 #endif
 
-    // Position the cursor.  Needed after a message that ends in a space.
-    windgoto(msg_row, msg_col);
+    if (cursor_flag == 'h')
+	cursor_sleep();
+    else if (cursor_flag == 'm')
+	windgoto(msg_row, cmdline_col_off + msg_col);
 
     ++no_mapping;
     ++allow_keys;
+    if (!simplify)
+	++no_reduce_keys;
     for (;;)
     {
-	if (argvars[0].v_type == VAR_UNKNOWN)
+	if (argvars[0].v_type == VAR_UNKNOWN
+		|| (argvars[0].v_type == VAR_NUMBER
+			&& argvars[0].vval.v_number == -1))
 	    // getchar(): blocking wait.
 	    n = plain_vgetc_nopaste();
 	else if (tv_get_bool_chk(&argvars[0], &error))
@@ -2427,14 +2479,18 @@ getchar_common(typval_T *argvars, typval_T *rettv)
     }
     --no_mapping;
     --allow_keys;
+    if (!simplify)
+	--no_reduce_keys;
+
+    if (cursor_flag == 'h')
+	cursor_unsleep();
 
     set_vim_var_nr(VV_MOUSE_WIN, 0);
     set_vim_var_nr(VV_MOUSE_WINID, 0);
     set_vim_var_nr(VV_MOUSE_LNUM, 0);
     set_vim_var_nr(VV_MOUSE_COL, 0);
 
-    rettv->vval.v_number = n;
-    if (n != 0 && (IS_SPECIAL(n) || mod_mask != 0))
+    if (n != 0 && (!allow_number || IS_SPECIAL(n) || mod_mask != 0))
     {
 	char_u		temp[10];   // modifier: 3, mbyte-char: 6, NUL: 1
 	int		i = 0;
@@ -2492,6 +2548,10 @@ getchar_common(typval_T *argvars, typval_T *rettv)
 	    }
 	}
     }
+    else if (!allow_number)
+	rettv->v_type = VAR_STRING;
+    else
+	rettv->vval.v_number = n;
 }
 
 /*
@@ -2500,7 +2560,7 @@ getchar_common(typval_T *argvars, typval_T *rettv)
     void
 f_getchar(typval_T *argvars, typval_T *rettv)
 {
-    getchar_common(argvars, rettv);
+    getchar_common(argvars, rettv, TRUE);
 }
 
 /*
@@ -2509,25 +2569,7 @@ f_getchar(typval_T *argvars, typval_T *rettv)
     void
 f_getcharstr(typval_T *argvars, typval_T *rettv)
 {
-    getchar_common(argvars, rettv);
-
-    if (rettv->v_type != VAR_NUMBER)
-	return;
-
-    char_u		temp[7];   // mbyte-char: 6, NUL: 1
-    varnumber_T	n = rettv->vval.v_number;
-    int		i = 0;
-
-    if (n != 0)
-    {
-	if (has_mbyte)
-	    i += (*mb_char2bytes)(n, temp + i);
-	else
-	    temp[i++] = n;
-    }
-    temp[i] = NUL;
-    rettv->v_type = VAR_STRING;
-    rettv->vval.v_string = vim_strnsave(temp, i);
+    getchar_common(argvars, rettv, FALSE);
 }
 
 /*
@@ -2540,7 +2582,7 @@ f_getcharmod(typval_T *argvars UNUSED, typval_T *rettv)
 }
 #endif // FEAT_EVAL
 
-#if defined(MESSAGE_QUEUE) || defined(PROTO)
+#if defined(MESSAGE_QUEUE)
 # define MAX_REPEAT_PARSE 8
 
 /*
@@ -2568,7 +2610,7 @@ parse_queued_messages(void)
     // If memory allocation fails during startup we'll exit but curbuf or
     // curwin could be NULL.
     if (curbuf == NULL || curwin == NULL)
-       return;
+	return;
 
     old_curbuf_fnum = curbuf->b_fnum;
     old_curwin_id = curwin->w_id;
@@ -4147,7 +4189,7 @@ fix_input_buffer(char_u *buf, int len)
     return len;
 }
 
-#if defined(USE_INPUT_BUF) || defined(PROTO)
+#if defined(USE_INPUT_BUF)
 /*
  * Return TRUE when bytes are in the input buffer or in the typeahead buffer.
  * Normally the input buffer would be sufficient, but the server_to_input_buf()
@@ -4272,7 +4314,7 @@ getcmdkeycmd(
     return (char_u *)line_ga.ga_data;
 }
 
-#if defined(FEAT_EVAL) || defined(PROTO)
+#if defined(FEAT_EVAL)
 /*
  * If there was a mapping we get its SID.  Otherwise, use "last_used_sid", it
  * is set when redo'ing.
@@ -4337,7 +4379,7 @@ do_cmdkey_command(int key UNUSED, int flags)
     return res;
 }
 
-#if defined(FEAT_EVAL) || defined(PROTO)
+#if defined(FEAT_EVAL)
     void
 reset_last_used_map(mapblock_T *mp)
 {

@@ -146,6 +146,8 @@ EXTERN int	vgetc_char INIT(= 0);
  * update_screen().
  */
 EXTERN int	cmdline_row;
+EXTERN int	cmdline_col_off;
+EXTERN int	cmdline_width;
 
 EXTERN int	redraw_cmdline INIT(= FALSE);	// cmdline must be redrawn
 EXTERN int	redraw_mode INIT(= FALSE);	// mode must be redrawn
@@ -248,7 +250,7 @@ EXTERN int	did_wait_return INIT(= FALSE);	// wait_return() was used and
 EXTERN int	need_maketitle INIT(= TRUE); // call maketitle() soon
 
 EXTERN int	quit_more INIT(= FALSE);    // 'q' hit at "--more--" msg
-#if defined(UNIX) || defined(VMS) || defined(MACOS_X)
+#if defined(UNIX) || defined(VMS) || defined(MACOS_X) || defined(AMIGA)
 EXTERN int	newline_on_exit INIT(= FALSE);	// did msg in altern. screen
 EXTERN int	intr_char INIT(= 0);	    // extra interrupt character
 #endif
@@ -540,8 +542,8 @@ EXTERN int	garbage_collect_at_exit INIT(= FALSE);
 #define t_super			(static_types[84])
 #define t_const_super		(static_types[85])
 
-#define t_object		(static_types[86])
-#define t_const_object		(static_types[87])
+#define t_object_any		(static_types[86])
+#define t_const_object_any	(static_types[87])
 
 #define t_class			(static_types[88])
 #define t_const_class		(static_types[89])
@@ -549,7 +551,14 @@ EXTERN int	garbage_collect_at_exit INIT(= FALSE);
 #define t_typealias		(static_types[90])
 #define t_const_typealias	(static_types[91])
 
-EXTERN type_T static_types[92]
+#define t_tuple_any		(static_types[92])
+#define t_const_tuple_any	(static_types[93])
+
+#define t_tuple_empty		(static_types[94])
+#define t_const_tuple_empty	(static_types[95])
+
+
+EXTERN type_T static_types[96]
 #ifdef DO_INIT
 = {
     // 0: t_unknown
@@ -724,7 +733,7 @@ EXTERN type_T static_types[92]
     {VAR_CLASS, 0, 0, TTFLAG_STATIC, &t_bool, NULL, NULL},
     {VAR_CLASS, 0, 0, TTFLAG_STATIC|TTFLAG_CONST, &t_bool, NULL, NULL},
 
-    // 86: t_object
+    // 86: t_object_any
     {VAR_OBJECT, 0, 0, TTFLAG_STATIC, NULL, NULL, NULL},
     {VAR_OBJECT, 0, 0, TTFLAG_STATIC|TTFLAG_CONST, NULL, NULL, NULL},
 
@@ -735,6 +744,14 @@ EXTERN type_T static_types[92]
     // 90: t_typealias
     {VAR_TYPEALIAS, 0, 0, TTFLAG_STATIC, NULL, NULL, NULL},
     {VAR_TYPEALIAS, 0, 0, TTFLAG_STATIC|TTFLAG_CONST, NULL, NULL, NULL},
+
+    // 92: t_tuple_any
+    {VAR_TUPLE, -1, 0, TTFLAG_STATIC, NULL, NULL, NULL},
+    {VAR_TUPLE, -1, 0, TTFLAG_STATIC|TTFLAG_CONST, NULL, NULL, NULL},
+
+    // 94: t_tuple_empty
+    {VAR_TUPLE, 0, 0, TTFLAG_STATIC, NULL, NULL, NULL},
+    {VAR_TUPLE, 0, 0, TTFLAG_STATIC|TTFLAG_CONST, NULL, NULL, NULL},
 }
 #endif
 ;
@@ -869,6 +886,7 @@ EXTERN int	drag_sep_line INIT(= FALSE);	// dragging vert separator
 #ifdef FEAT_DIFF
 // Value set from 'diffopt'.
 EXTERN int	diff_context INIT(= 6);		// context for folds
+EXTERN int      linematch_lines INIT(= 0);      // number of lines for diff line match
 EXTERN int	diff_foldcolumn INIT(= 2);	// 'foldcolumn' for diff mode
 EXTERN int	diff_need_scrollbind INIT(= FALSE);
 #endif
@@ -955,9 +973,9 @@ EXTERN int	gui_win_y INIT(= -1);
 #endif
 
 #ifdef FEAT_CLIPBOARD
-EXTERN Clipboard_T clip_star;	// PRIMARY selection in X11
-# ifdef FEAT_X11
-EXTERN Clipboard_T clip_plus;	// CLIPBOARD selection in X11
+EXTERN Clipboard_T clip_star;	// PRIMARY selection in X11/Wayland
+# if defined(FEAT_X11) || defined(FEAT_WAYLAND_CLIPBOARD)
+EXTERN Clipboard_T clip_plus;	// CLIPBOARD selection in X11/Wayland
 # else
 #  define clip_plus clip_star	// there is only one clipboard
 #  define ONE_CLIPBOARD
@@ -996,9 +1014,10 @@ EXTERN win_T	*curwin;	// currently active window
 #define AUCMD_WIN_COUNT 5
 
 typedef struct {
-  win_T	*auc_win;	// Window used in aucmd_prepbuf().  When not NULL the
-			// window has been allocated.
-  int	auc_win_used;	// This auc_win is being used.
+    // Window used in aucmd_prepbuf().  When not NULL the window has been
+    // allocated.
+    win_T	*auc_win;
+    int		auc_win_used;	// This auc_win is being used.
 } aucmdwin_T;
 
 EXTERN aucmdwin_T aucmd_win[AUCMD_WIN_COUNT];
@@ -1038,6 +1057,10 @@ EXTERN tabpage_T    *first_tabpage;
 EXTERN tabpage_T    *curtab;
 EXTERN tabpage_T    *lastused_tabpage;
 EXTERN int	    redraw_tabline INIT(= FALSE);  // need to redraw tabline
+
+#if defined(FEAT_TABPANEL)
+EXTERN int	    redraw_tabpanel INIT(= FALSE);  // need to redraw tabpanel
+#endif
 
 /*
  * All buffers are linked in a list. 'firstbuf' points to the first entry,
@@ -1143,6 +1166,8 @@ EXTERN int	VIsual_select INIT(= FALSE);
 				// whether Select mode is active
 EXTERN int	VIsual_select_reg INIT(= 0);
 				// register name for Select mode
+EXTERN int  VIsual_select_exclu_adj INIT(= FALSE);
+				// whether incremented cursor during exclusive selection
 EXTERN int	restart_VIsual_select INIT(= 0);
 				// restart Select mode when next cmd finished
 EXTERN int	VIsual_reselect;
@@ -1578,7 +1603,7 @@ EXTERN int	listcmd_busy INIT(= FALSE); // set when :argdo, :windo or
 					    // :bufdo is executing
 EXTERN int	need_start_insertmode INIT(= FALSE);
 					    // start insert mode soon
-#if defined(FEAT_EVAL) || defined(PROTO)
+#if defined(FEAT_EVAL)
 EXTERN char_u	last_mode[MODE_MAX_LENGTH] INIT(= "n"); // for ModeChanged event
 #endif
 EXTERN char_u	*last_cmdline INIT(= NULL); // last command line (for ":)
@@ -1591,7 +1616,7 @@ EXTERN int	autocmd_bufnr INIT(= 0);     // fnum for <abuf> on cmdline
 EXTERN char_u	*autocmd_match INIT(= NULL); // name for <amatch> on cmdline
 EXTERN int	aucmd_cmdline_changed_count INIT(= 0);
 
-EXTERN int	did_cursorhold INIT(= FALSE); // set when CursorHold t'gerd
+EXTERN int	did_cursorhold INIT(= TRUE);  // set when CursorHold t'gerd
 EXTERN pos_T	last_cursormoved	      // for CursorMoved event
 # ifdef DO_INIT
 		    = {0, 0, 0}
@@ -1671,6 +1696,7 @@ extern char_u *all_lflags;
 # ifdef VMS
 extern char_u *compiler_version;
 extern char_u *compiled_arch;
+extern char_u *compiled_vers;
 # endif
 extern char_u *compiled_user;
 extern char_u *compiled_sys;
@@ -1844,10 +1870,7 @@ EXTERN Window	commWindow INIT(= None);
 EXTERN Window	clientWindow INIT(= None);
 EXTERN Atom	commProperty INIT(= None);
 EXTERN char_u	*serverDelayedStartName INIT(= NULL);
-# else
-#  ifdef PROTO
-typedef int HWND;
-#  endif
+# elif defined(MSWIN)
 EXTERN HWND	clientWindow INIT(= 0);
 # endif
 #endif
@@ -1999,9 +2022,6 @@ EXTERN evalarg_T EVALARG_EVALUATE
 #endif
 
 #ifdef MSWIN
-# ifdef PROTO
-typedef int HINSTANCE;
-# endif
 EXTERN int ctrl_break_was_pressed INIT(= FALSE);
 EXTERN HINSTANCE g_hinst INIT(= NULL);
 #endif
@@ -2042,3 +2062,59 @@ EXTERN int skip_update_topline INIT(= FALSE);
 // 'showcmd' buffer shared between normal.c and statusline code
 #define SHOWCMD_BUFLEN (SHOWCMD_COLS + 1 + 30)
 EXTERN char_u showcmd_buf[SHOWCMD_BUFLEN];
+
+#ifdef FEAT_TERMGUICOLORS
+EXTERN int	p_tgc_set INIT(= FALSE);
+#endif
+
+#ifdef FEAT_CLIPBOARD
+EXTERN clipmethod_T clipmethod INIT(= CLIPMETHOD_NONE);
+#endif
+
+#ifdef FEAT_WAYLAND
+
+// Wayland display name for global connection (ex. wayland-0). Can be NULL
+EXTERN char *wayland_display_name INIT(= NULL);
+
+// Special mime type used to identify selection events that came from us setting
+// the selection. Is in format of "application/x-vim-instance-<pid>" where <pid>
+// is the PID of the Vim process. Set in main.c
+EXTERN char wayland_vim_special_mime[
+    sizeof("application/x-vim-instance-") + NUMBUFLEN - 1]; // Includes NUL
+
+// Don't connect to Wayland compositor if TRUE
+EXTERN int wayland_no_connect INIT(= FALSE);
+
+#endif
+
+#if defined(FEAT_CLIENTSERVER) && !defined(MSWIN)
+
+// Backend for clientserver functionality
+typedef enum {
+    CLIENTSERVER_METHOD_NONE,
+    CLIENTSERVER_METHOD_X11,
+    CLIENTSERVER_METHOD_SOCKET
+} clientserver_method_T;
+
+// Default to X11 if compiled with support for it, else use socket server.
+# if defined(FEAT_X11) && defined(FEAT_SOCKETSERVER)
+EXTERN clientserver_method_T clientserver_method
+# else
+// Since we aren't going to be changing clientserver_method, make it constant to
+// allow compiler optimizations.
+EXTERN const clientserver_method_T clientserver_method
+# endif
+# ifdef FEAT_X11
+INIT(= CLIENTSERVER_METHOD_X11);
+# elif defined(FEAT_SOCKETSERVER)
+INIT(= CLIENTSERVER_METHOD_SOCKET);
+# else
+INIT(= CLIENTSERVER_METHOD_NONE);
+# endif
+
+#endif
+
+#ifdef FEAT_SOCKETSERVER
+// Path to socket of last client that communicated with us
+EXTERN char_u *client_socket INIT(= NULL);
+#endif

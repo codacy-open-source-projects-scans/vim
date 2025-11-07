@@ -11,7 +11,7 @@
 
 #include "vim.h"
 
-#if defined(FEAT_CSCOPE) || defined(PROTO)
+#if defined(FEAT_CSCOPE)
 
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -439,7 +439,7 @@ cs_print_tags(void)
  *
  *		Note: All string comparisons are case sensitive!
  */
-#if defined(FEAT_EVAL) || defined(PROTO)
+#if defined(FEAT_EVAL)
     static int
 cs_connection(int num, char_u *dbpath, char_u *ppath)
 {
@@ -540,7 +540,7 @@ cs_add_common(
     char	*fname2 = NULL;
     char	*ppath = NULL;
     int		i;
-    int		len;
+    size_t	len;
     size_t	usedlen = 0;
     char_u	*fbuf = NULL;
 
@@ -548,8 +548,7 @@ cs_add_common(
     if ((fname = alloc(MAXPATHL + 1)) == NULL)
 	goto add_err;
 
-    expand_env((char_u *)arg1, (char_u *)fname, MAXPATHL);
-    len = (int)STRLEN(fname);
+    len = expand_env((char_u *)arg1, (char_u *)fname, MAXPATHL);
     fbuf = (char_u *)fname;
     (void)modify_fname((char_u *)":p", FALSE, &usedlen,
 					      (char_u **)&fname, &fbuf, &len);
@@ -829,6 +828,7 @@ cs_create_connection(int i)
     int		cmdlen;
     int		len;
     char	*prog, *cmd, *ppath = NULL;
+    size_t	proglen;
 #ifdef MSWIN
     int		fd;
     SECURITY_ATTRIBUTES sa;
@@ -916,10 +916,10 @@ err_closing:
 	    goto err_closing;
 #endif
 	}
-	expand_env(p_csprg, (char_u *)prog, MAXPATHL);
+	proglen = expand_env(p_csprg, (char_u *)prog, MAXPATHL);
 
 	// alloc space to hold the cscope command
-	cmdlen = (int)(strlen(prog) + strlen(csinfo[i].fname) + 32);
+	cmdlen = (int)(proglen + strlen(csinfo[i].fname) + 32);
 	if (csinfo[i].ppath)
 	{
 	    // expand the prepend path for env var's
@@ -933,9 +933,7 @@ err_closing:
 		goto err_closing;
 #endif
 	    }
-	    expand_env((char_u *)csinfo[i].ppath, (char_u *)ppath, MAXPATHL);
-
-	    cmdlen += (int)strlen(ppath);
+	    cmdlen += (int)expand_env((char_u *)csinfo[i].ppath, (char_u *)ppath, MAXPATHL);
 	}
 
 	if (csinfo[i].flags)
@@ -1233,6 +1231,12 @@ cs_find_common(
 	char_u	    *tmp = vim_tempname('c', TRUE);
 	qf_info_T   *qi = NULL;
 	win_T	    *wp = NULL;
+
+	if (tmp == NULL)
+	{
+	    vim_free(nummatches);
+	    return FALSE;
+	}
 
 	f = mch_fopen((char *)tmp, "w");
 	if (f == NULL)
@@ -1942,12 +1946,18 @@ cs_pathcomponents(char *path)
 
     s = path + strlen(path) - 1;
     for (i = 0; i < p_cspc; ++i)
-	while (s > path && *--s != '/'
+    {
+	while (s > path)
+	{
+	   s--;
+	   if (*s == '/'
 #ifdef MSWIN
-		&& *--s != '\\'
+		|| *s == '\\'
 #endif
 		)
-	    ;
+	      break;
+	}
+    }
     if ((s > path && *s == '/')
 #ifdef MSWIN
 	|| (s > path && *s == '\\')
@@ -2074,7 +2084,7 @@ cs_print_tags_priv(char **matches, char **cntxts, int num_matches)
 	    (void)sprintf(buf, cntxformat, context);
 
 	    // print the context only if it fits on the same line
-	    if (msg_col + (int)strlen(buf) >= (int)Columns)
+	    if (msg_col + (int)strlen(buf) >= cmdline_width)
 		msg_putchar('\n');
 	    msg_advance(12);
 	    msg_outtrans_long_attr((char_u *)buf, 0);
@@ -2505,7 +2515,7 @@ cs_end(void)
 
 #endif	// FEAT_CSCOPE
 
-#if defined(FEAT_EVAL) || defined(PROTO)
+#if defined(FEAT_EVAL)
 
 /*
  * "cscope_connection([{num} , {dbpath} [, {prepend}]])" function
