@@ -516,6 +516,10 @@ can_unload_buffer(buf_T *buf)
 		break;
 	    }
     }
+    // Don't unload the buffer while it's still being saved
+    if (can_unload && buf->b_saving)
+	can_unload = FALSE;
+
     if (!can_unload)
     {
 	char_u *fname = buf->b_fname != NULL ? buf->b_fname : buf->b_ffname;
@@ -2499,7 +2503,6 @@ free_buf_options(
     clear_string_option(&buf->b_p_cinw);
     clear_string_option(&buf->b_p_cot);
     clear_string_option(&buf->b_p_cpt);
-    clear_string_option(&buf->b_p_ise);
 #ifdef FEAT_COMPL_FUNC
     clear_string_option(&buf->b_p_cfu);
     free_callback(&buf->b_cfu_cb);

@@ -507,6 +507,8 @@ EXTERN char_u	*p_cedit;	// 'cedit'
 EXTERN long	p_cwh;		// 'cmdwinheight'
 #ifdef FEAT_CLIPBOARD
 EXTERN char_u	*p_cb;		// 'clipboard'
+#endif
+#ifdef HAVE_CLIPMETHOD
 EXTERN char_u	*p_cpm;		// 'clipmethod'
 #endif
 EXTERN long	p_ch;		// 'cmdheight'
@@ -739,7 +741,6 @@ EXTERN char_u	*p_inde;	// 'indentexpr'
 EXTERN char_u	*p_indk;	// 'indentkeys'
 #endif
 EXTERN int	p_im;		// 'insertmode'
-EXTERN char_u	*p_ise;		// 'isexpand'
 EXTERN char_u	*p_isf;		// 'isfname'
 EXTERN char_u	*p_isi;		// 'isident'
 EXTERN char_u	*p_isk;		// 'iskeyword'
