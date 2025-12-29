@@ -2282,6 +2282,9 @@ typedef struct {
 
     // pointer to the lines concatenated for a lambda.
     char_u	*eval_tofree_lambda;
+
+    // pointer to name of class being constructed
+    class_T	*eval_class;
 } evalarg_T;
 
 // Flag for expression evaluation.
@@ -3376,6 +3379,9 @@ struct file_buffer
 #if defined(FEAT_EVAL)
     char_u	*b_p_fex;	// 'formatexpr'
     long_u	b_p_fex_flags;	// flags for 'formatexpr'
+#endif
+#ifdef HAVE_FSYNC
+    int		b_p_fs;		// 'fsync'
 #endif
 #ifdef FEAT_CRYPT
     char_u	*b_p_key;	// 'key'

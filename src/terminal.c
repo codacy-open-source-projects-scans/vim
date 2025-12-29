@@ -7048,6 +7048,7 @@ conpty_term_and_job_init(
     HANDLE	    o_theirs = NULL;
     HANDLE	    i_ours = NULL;
     HANDLE	    o_ours = NULL;
+    char	    *errmsg = NULL;
 
     ga_init2(&ga_cmd, sizeof(char*), 20);
     ga_init2(&ga_env, sizeof(char*), 20);
@@ -7149,7 +7150,10 @@ conpty_term_and_job_init(
 	    | CREATE_SUSPENDED | CREATE_DEFAULT_ERROR_MODE,
 	    env_wchar, cwd_wchar,
 	    &term->tl_siex.StartupInfo, &proc_info))
+    {
+	errmsg = GetWin32Error();
 	goto failed;
+    }
 
     CloseHandle(i_theirs);
     CloseHandle(o_theirs);
@@ -7163,6 +7167,8 @@ conpty_term_and_job_init(
     channel->ch_write_text_mode = TRUE;
 
     // Use to explicitly delete anonymous pipe handle.
+    // In addition, it is used to prevent the pipe from being closed when input
+    // from a buffer etc. is finished.
     channel->ch_anonymous_pipe = TRUE;
 
     jo = CreateJobObject(NULL, NULL);
@@ -7257,6 +7263,9 @@ failed:
     if (term->tl_conpty != NULL)
 	pClosePseudoConsole(term->tl_conpty);
     term->tl_conpty = NULL;
+    // Propagate errors that occur in CreateProcess
+    if (errmsg)
+	semsg("CreateProcess failed: %s", errmsg);
     return FAIL;
 }
 

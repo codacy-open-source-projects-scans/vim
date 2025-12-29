@@ -2051,6 +2051,7 @@ adjust_cursor_eol(void)
     int adj_cursor = (curwin->w_cursor.col > 0
 				&& gchar_cursor() == NUL
 				&& (cur_ve_flags & VE_ONEMORE) == 0
+				&& (cur_ve_flags & VE_ALL) == 0
 				&& !(restart_edit || (State & MODE_INSERT)));
     if (!adj_cursor)
 	return;
@@ -2398,7 +2399,7 @@ theend:
  * Reset 'linebreak' and take care of side effects.
  * Returns the previous value, to be passed to restore_lbr().
  */
-    static int
+    int
 reset_lbr(void)
 {
     if (!curwin->w_p_lbr)
@@ -2412,7 +2413,7 @@ reset_lbr(void)
 /*
  * Restore 'linebreak' and take care of side effects.
  */
-    static void
+    void
 restore_lbr(int lbr_saved)
 {
     if (curwin->w_p_lbr || !lbr_saved)

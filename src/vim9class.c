@@ -179,7 +179,10 @@ add_member(
     m->ocm_name.length = (size_t)(varname_end - varname);
     m->ocm_name.string = vim_strnsave(varname, m->ocm_name.length);
     if (m->ocm_name.string == NULL)
+    {
 	m->ocm_name.length = 0;
+	return FAIL;
+    }
     m->ocm_access = has_public ? VIM_ACCESS_ALL
 		      : *varname == '_' ? VIM_ACCESS_PRIVATE : VIM_ACCESS_READ;
     if (has_final)
@@ -230,7 +233,10 @@ add_members_to_class(
 	*m = parent_members[i];
 	m->ocm_name.string = vim_strnsave(m->ocm_name.string, m->ocm_name.length);
 	if (m->ocm_name.string == NULL)
+	{
 	    m->ocm_name.length = 0;
+	    return FAIL;
+	}
 	if (m->ocm_init != NULL)
 	    m->ocm_init = vim_strsave(m->ocm_init);
     }
@@ -2116,6 +2122,8 @@ early_ret:
     cl->class_object_type.tt_type = VAR_OBJECT;
     cl->class_object_type.tt_class = cl;
 
+    eap->ea_class = cl;
+
     // Add the class to the script-local variables.
     // TODO: handle other context, e.g. in a function
     // TODO: does uf_hash need to be cleared?
@@ -3237,7 +3245,8 @@ class_object_index(
 	if (fp != NULL)
 	{
 	    // Protected methods are not accessible outside the class
-	    if (*name == '_')
+	    if (fp->uf_defclass != evalarg->eval_class
+		    && *name == '_')
 	    {
 		semsg(_(e_cannot_access_protected_method_str), fp->uf_name);
 		goto done;
