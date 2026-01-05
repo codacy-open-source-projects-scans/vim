@@ -3,7 +3,7 @@ vim9script
 # Vim functions for file type detection
 #
 # Maintainer:		The Vim Project <https://github.com/vim/vim>
-# Last Change:		2025 Dec 27
+# Last Change:		2026 Jan 02
 # Former Maintainer:	Bram Moolenaar <Bram@vim.org>
 
 # These functions are moved here from runtime/filetype.vim to make startup
@@ -1876,6 +1876,9 @@ const ft_from_ext = {
   "elv": "elvish",
   # Faust
   "lib": "faust",
+  # Fennel
+  "fnl": "fennel",
+  "fnlm": "fennel",
   # Libreoffice config files
   "xcu": "xml",
   "xlb": "xml",
@@ -2231,6 +2234,8 @@ const ft_from_ext = {
   "k": "kwt",
   # Kivy
   "kv": "kivy",
+  # Kos
+  "kos": "kos",
   # Kotlin
   "kt": "kotlin",
   "ktm": "kotlin",
