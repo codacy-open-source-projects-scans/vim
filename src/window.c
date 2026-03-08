@@ -1565,6 +1565,11 @@ win_init(win_T *newp, win_T *oldp, int flags UNUSED)
     newp->w_wrow = oldp->w_wrow;
     newp->w_fraction = oldp->w_fraction;
     newp->w_prev_fraction_row = oldp->w_prev_fraction_row;
+
+    // Not sure if this is needed, but be safe
+    remove_highlight_overrides(newp->w_hl);
+    VIM_CLEAR(newp->w_hl);
+
     copy_jumplist(oldp, newp);
 #ifdef FEAT_QUICKFIX
     if (flags & WSP_NEWLOC)
