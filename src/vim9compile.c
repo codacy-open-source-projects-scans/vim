@@ -183,7 +183,10 @@ arg_exists(
 									 == OK)
 	{
 	    if (gen_load_outer != NULL)
+	    {
 		++*gen_load_outer;
+		cctx->ctx_outer_used = TRUE;
+	    }
 	    return OK;
 	}
     }
@@ -1170,9 +1173,15 @@ compile_nested_function(exarg_T *eap, cctx_T *cctx, garray_T *lines_to_free)
 	lvar = reserve_local(cctx, func_name, name_end - name_start,
 					    ASSIGN_CONST, ufunc->uf_func_type);
 	if (lvar == NULL)
+	{
+	    func_ptr_unref(ufunc);
 	    goto theend;
+	}
 	if (generate_FUNCREF(cctx, ufunc, NULL, FALSE, 0, &funcref_isn_idx) == FAIL)
+	{
+	    func_ptr_unref(ufunc);
 	    goto theend;
+	}
 	r = generate_STORE(cctx, ISN_STORE, lvar->lv_idx, NULL);
     }
 
@@ -1475,7 +1484,7 @@ valid_dest_reg(int name)
 {
     if (name == '@')
        name = '"';
-    if (name == '/' || name == '=' || valid_yank_reg(name, TRUE))
+    if (name == '/' || name == '=' || name == '#' || valid_yank_reg(name, TRUE))
 	return TRUE;
     emsg_invreg(name);
     return FAIL;
@@ -1487,6 +1496,7 @@ valid_dest_reg(int name)
  * For an option "option_scope" is set.
  * For a v:var "vimvaridx" is set.
  * "type" is set to the destination type if known, unchanted otherwise.
+ * When "has_index" is TRUE an item of the variable is assigned to.
  * Return FAIL if an error message was given.
  */
     int
@@ -1494,6 +1504,7 @@ get_var_dest(
 	char_u		*name,
 	assign_dest_T	*dest,
 	cmdidx_T	cmdidx,
+	int		has_index,
 	int		*option_scope,
 	int		*vimvaridx,
 	type_T		**type,
@@ -1594,8 +1605,9 @@ get_var_dest(
 	    semsg(_(e_variable_not_found_str), name);
 	    return FAIL;
 	}
+	// An item of a read-only variable can be changed, as when not compiled.
 	// We use the current value of "sandbox" here, is that OK?
-	if (var_check_ro(di_flags, name, FALSE))
+	if (!has_index && var_check_ro(di_flags, name, FALSE))
 	    return FAIL;
 	*dest = dest_vimvar;
 	vtv = get_vim_var_tv(*vimvaridx);
@@ -1896,9 +1908,9 @@ compile_lhs_script_var(
 			lhs->lhs_name);
 	    return FAIL;
 	}
-	else if (cctx->ctx_ufunc->uf_script_ctx_version == SCRIPT_VERSION_VIM9
-		&& script_namespace
-		&& !script_var && import == NULL)
+	// With ":source ++dryrun" the ":let" that creates it was not executed.
+	else if (script_namespace && !script_var && import == NULL
+							       && !source_dryrun)
 	{
 	    semsg(_(e_unknown_variable_str), lhs->lhs_name);
 	    return FAIL;
@@ -1949,11 +1961,13 @@ compile_lhs_var_dest(
     int		cmdidx,
     char_u	*var_start,
     char_u	*var_end,
-    int		is_decl)
+    int		is_decl,
+    int		has_cmd)	// "var" before "var_start"
 {
     int	    declare_error = FALSE;
 
     if (get_var_dest(lhs->lhs_name, &lhs->lhs_dest, cmdidx,
+				lhs->lhs_has_index,
 				&lhs->lhs_opt_flags, &lhs->lhs_vimvaridx,
 				&lhs->lhs_type, cctx) == FAIL)
 	return FAIL;
@@ -2004,8 +2018,8 @@ compile_lhs_var_dest(
 		char_u *p = skipwhite(lhs->lhs_end);
 		if (p[0] == '.' && p[1] == '=')
 		    emsg(_(e_dot_equal_not_supported_with_script_version_two));
-		else if (p[0] == ':')
-		    // type specified in a non-var assignment
+		else if (p[0] == ':' && !has_cmd)
+		    // type specified in an assignment without "var"
 		    semsg(_(e_trailing_characters_str), p);
 		else
 		    semsg(_(e_variable_already_declared_str), lhs->lhs_name);
@@ -2258,8 +2272,10 @@ compile_lhs_set_member_type(
 	lhs->lhs_varlen = after - var_start;
 	lhs->lhs_dest = dest_expr;
 	// We don't know the type before evaluating the expression,
-	// use "any" until then.
+	// use "any" until then.  The member index is for the first name,
+	// not for the last index.
 	lhs->lhs_type = &t_any;
+	lhs->lhs_member_idx = -1;
     }
 
     int use_class = lhs->lhs_type != NULL
@@ -2309,7 +2325,7 @@ compile_lhs(
     {
 	// compile the LHS destination
 	if (compile_lhs_var_dest(cctx, lhs, cmdidx, var_start, var_end,
-							is_decl) == FAIL)
+						is_decl, has_cmd) == FAIL)
 	    return FAIL;
     }
 
@@ -2321,7 +2337,16 @@ compile_lhs(
     {
 	// set the LHS variable type
 	if (compile_lhs_set_type(cctx, lhs, var_end, is_decl) == FAIL)
+	{
+	    // In a dry run declare the variable anyway, so that using it does
+	    // not add an error.
+	    if (source_dryrun && lhs->lhs_lvar == NULL
+		    && lhs->lhs_dest == dest_local
+		    && cctx->ctx_skip != SKIP_YES)
+		reserve_local(cctx, var_start, lhs->lhs_varlen, ASSIGN_VAR,
+								       &t_any);
 	    return FAIL;
+	}
     }
 
     if (oplen == 3 && !heredoc && !lhs_concatenable(lhs))
@@ -2597,7 +2622,7 @@ compile_load_lhs_with_index(lhs_T *lhs, char_u *var_start, cctx_T *cctx)
 	char_u *dot = vim_strchr(var_start, '.');
 	if (dot == NULL)
 	{
-	    check_type_is_value(lhs->lhs_type);
+	    (void)check_type_is_value(lhs->lhs_type);
 	    return FAIL;
 	}
 
@@ -2616,7 +2641,17 @@ compile_load_lhs_with_index(lhs_T *lhs, char_u *var_start, cctx_T *cctx)
 
     if (lhs->lhs_has_index)
     {
-	int range = FALSE;
+	int	range = FALSE;
+	type_T	*type = get_type_on_stack(cctx, 0);
+
+	// A member of an object or class is not obtained by indexing it.
+	if (type->tt_type == VAR_CLASS
+		|| (type->tt_type == VAR_OBJECT && type != &t_object_any))
+	{
+	    char_u *p = var_start + lhs->lhs_varlen;
+
+	    return compile_class_object_index(cctx, &p, type);
+	}
 
 	// Get member from list or dict.  First compile the
 	// index value.
@@ -2666,7 +2701,10 @@ compile_assign_unlet(
 	return FAIL;
     }
 
-    if (lhs->lhs_type == NULL || lhs->lhs_type == &t_any)
+    // For "expr[idx]" the index is compiled before the expression, thus the
+    // resulting type cannot be used here.
+    if (lhs->lhs_dest == dest_expr
+	    || lhs->lhs_type == NULL || lhs->lhs_type == &t_any)
     {
 	// Index on variable of unknown type: check at runtime.
 	dest_type = VAR_ANY;
@@ -3052,6 +3090,11 @@ compile_assign_list_check_rhs_type(cctx_T *cctx, cac_T *cac)
 		  stacktype->tt_type == VAR_TUPLE ? &t_tuple_any : &t_list_any,
 		  TYPECHK_TUPLE_OK, -1, 0, cctx, FALSE, FALSE) == FAIL)
 	return FAIL;
+
+    // The check accepts both a list and a tuple. Keep "any", making it a list
+    // would reject a tuple later on.
+    if (stacktype->tt_type == VAR_ANY)
+	set_type_on_stack(cctx, &t_any, 0);
 
     if (stacktype->tt_type == VAR_TUPLE)
     {
@@ -4265,6 +4308,8 @@ compile_def_function_body(
     char_u	*line = NULL;
     char_u	*p;
     int		did_emsg_before = did_emsg;
+    int		failed = FALSE;
+    int		stack_len = 0;
 #ifdef FEAT_PROFILE
     int		prof_lnum = -1;
 #endif
@@ -4277,10 +4322,12 @@ compile_def_function_body(
 	char_u	    *cmd;
 	cmdmod_T    local_cmdmod;
 
+	stack_len = cctx->ctx_type_stack.ga_len;
+
 	// Bail out on the first error to avoid a flood of errors and report
 	// the right line number when inside try/catch.
 	if (did_emsg_before != did_emsg)
-	    return FAIL;
+	    goto linefail;
 
 	if (line != NULL && *line == '|')
 	    // the line continues after a '|'
@@ -4290,10 +4337,10 @@ compile_def_function_body(
 						    || VIM_ISWHITE(line[-1]))))
 	{
 	    semsg(_(e_trailing_characters_str), line);
-	    return FAIL;
+	    goto linefail;
 	}
 	else if (line != NULL && vim9_bad_comment(skipwhite(line)))
-	    return FAIL;
+	    goto linefail;
 	else
 	{
 	    line = next_line_from_context(cctx, FALSE);
@@ -4312,7 +4359,10 @@ compile_def_function_body(
 	    {
 		line = vim_strsave(line);
 		if (ga_add_string(lines_to_free, line) == FAIL)
+		{
+		    vim_free(line);
 		    return FAIL;
+		}
 	    }
 	}
 
@@ -4325,7 +4375,7 @@ compile_def_function_body(
 	{
 	    // "#" starts a comment, but "#{" is an error
 	    if (vim9_bad_comment(ea.cmd))
-		return FAIL;
+		goto linefail;
 	    line = (char_u *)"";
 	    continue;
 	}
@@ -4365,7 +4415,7 @@ compile_def_function_body(
 		    else
 		    {
 			emsg(_(e_using_rcurly_outside_if_block_scope));
-			return FAIL;
+			goto linefail;
 		    }
 		    if (line != NULL)
 			line = skipwhite(ea.cmd + 1);
@@ -4389,7 +4439,7 @@ compile_def_function_body(
 	cctx->ctx_has_cmdmod = FALSE;
 	if (parse_command_modifiers(&ea, errormsg, &local_cmdmod, FALSE)
 								       == FAIL)
-	    return FAIL;
+	    goto linefail;
 	generate_cmdmods(cctx, &local_cmdmod);
 	undo_cmdmod(&local_cmdmod);
 
@@ -4425,7 +4475,7 @@ compile_def_function_body(
 		if (assign == OK)
 		    goto nextline;
 		if (assign == FAIL)
-		    return FAIL;
+		    goto linefail;
 	    }
 	}
 
@@ -4453,7 +4503,7 @@ compile_def_function_body(
 				   && !(local_cmdmod.cmod_flags & CMOD_LEGACY))
 		{
 		    semsg(_(e_colon_required_before_range_str), cmd);
-		    return FAIL;
+		    goto linefail;
 		}
 		ea.addr_count = 1;
 		if (ends_excmd2(line, ea.cmd))
@@ -4474,7 +4524,7 @@ compile_def_function_body(
 	{
 	    if (cctx->ctx_skip != SKIP_YES)
 		semsg(_(e_ambiguous_use_of_user_defined_command_str), ea.cmd);
-	    return FAIL;
+	    goto linefail;
 	}
 
 	// When using ":legacy cmd" always use compile_exec().
@@ -4499,7 +4549,7 @@ compile_def_function_body(
 		case CMD_finally:
 		case CMD_endtry:
 			semsg(_(e_cannot_use_legacy_with_command_str), ea.cmd);
-			return FAIL;
+			goto linefail;
 		default: break;
 	    }
 
@@ -4524,7 +4574,7 @@ compile_def_function_body(
 	    else
 	    {
 		semsg(_(e_command_not_recognized_str), ea.cmd);
-		return FAIL;
+		goto linefail;
 	    }
 	}
 
@@ -4541,17 +4591,20 @@ compile_def_function_body(
 	{
 	    semsg(_(e_unreachable_code_after_str),
 				     cctx->ctx_had_return ? "return" : "throw");
-	    return FAIL;
+	    goto linefail;
 	}
 
-	// When processing the end of an if-else block, don't clear the
-	// "ctx_had_throw" flag.  If an if-else block ends in a "throw"
+	// When processing the end of an if-else or try-catch block, don't
+	// clear the "ctx_had_throw" flag.  If such a block ends in a "throw"
 	// statement, then it is considered to end in a "return" statement.
 	// The "ctx_had_throw" is cleared immediately after processing the
-	// if-else block ending statement.
+	// block ending statement.
 	// Otherwise, clear the "had_throw" flag.
 	if (ea.cmdidx != CMD_else && ea.cmdidx != CMD_elseif
-						&& ea.cmdidx != CMD_endif)
+						&& ea.cmdidx != CMD_endif
+						&& ea.cmdidx != CMD_catch
+						&& ea.cmdidx != CMD_finally
+						&& ea.cmdidx != CMD_endtry)
 	    cctx->ctx_had_throw = FALSE;
 
 	p = skipwhite(p);
@@ -4568,7 +4621,7 @@ compile_def_function_body(
 	    if ((ea.argt & EX_RANGE) == 0 && ea.addr_count > 0)
 	    {
 		emsg(_(e_no_range_allowed));
-		return FAIL;
+		goto linefail;
 	    }
 	}
 
@@ -4648,9 +4701,14 @@ compile_def_function_body(
 		    break;
 	    case CMD_continue:
 		    line = compile_continue(p, cctx);
+		    // "continue" unconditionally jumps back to the loop,
+		    // like a "return".
+		    cctx->ctx_had_return = TRUE;
 		    break;
 	    case CMD_break:
 		    line = compile_break(p, cctx);
+		    // "break" unconditionally exits the loop, like a "return".
+		    cctx->ctx_had_return = TRUE;
 		    break;
 
 	    case CMD_try:
@@ -4659,13 +4717,16 @@ compile_def_function_body(
 	    case CMD_catch:
 		    line = compile_catch(p, cctx);
 		    cctx->ctx_had_return = FALSE;
+		    cctx->ctx_had_throw = FALSE;
 		    break;
 	    case CMD_finally:
 		    line = compile_finally(p, cctx);
 		    cctx->ctx_had_return = FALSE;
+		    cctx->ctx_had_throw = FALSE;
 		    break;
 	    case CMD_endtry:
 		    line = compile_endtry(p, cctx);
+		    cctx->ctx_had_throw = FALSE;
 		    break;
 	    case CMD_throw:
 		    line = compile_throw(p, cctx);
@@ -4713,7 +4774,7 @@ compile_def_function_body(
 
 	    case CMD_substitute:
 		    if (check_global_and_subst(ea.cmd, p) == FAIL)
-			return FAIL;
+			goto linefail;
 		    if (cctx->ctx_skip == SKIP_YES)
 			line = (char_u *)"";
 		    else
@@ -4747,16 +4808,17 @@ compile_def_function_body(
 	    case CMD_change:
 	    case CMD_insert:
 	    case CMD_k:
+	    case CMD_open:
 	    case CMD_t:
 	    case CMD_xit:
-		    not_in_vim9(&ea);
-		    return FAIL;
+		    not_in_vim9(&ea, false);
+		    goto linefail;
 
 	    case CMD_SIZE:
 		    if (cctx->ctx_skip != SKIP_YES)
 		    {
 			semsg(_(e_invalid_command_str), ea.cmd);
-			return FAIL;
+			goto linefail;
 		    }
 		    // We don't check for a next command here.
 		    line = (char_u *)"";
@@ -4784,30 +4846,30 @@ compile_def_function_body(
 		    if (cctx->ctx_skip != SKIP_YES)
 		    {
 			emsg(_(e_vim9script_can_only_be_used_in_script));
-			return FAIL;
+			goto linefail;
 		    }
 		    line = (char_u *)"";
 		    break;
 
 	    case CMD_class:
 		    emsg(_(e_class_can_only_be_used_in_script));
-		    return FAIL;
+		    goto linefail;
 
 	    case CMD_enum:
 		    emsg(_(e_enum_can_only_be_used_in_script));
-		    return FAIL;
+		    goto linefail;
 
 	    case CMD_interface:
 		    emsg(_(e_interface_can_only_be_used_in_script));
-		    return FAIL;
+		    goto linefail;
 
 	    case CMD_type:
 		    emsg(_(e_type_can_only_be_used_in_script));
-		    return FAIL;
+		    goto linefail;
 
 	    case CMD_global:
 		    if (check_global_and_subst(ea.cmd, p) == FAIL)
-			return FAIL;
+			goto linefail;
 		    // FALLTHROUGH
 	    default:
 		    // Not recognized, execute with do_cmdline_cmd().
@@ -4817,7 +4879,7 @@ compile_def_function_body(
 	}
 nextline:
 	if (line == NULL)
-	    return FAIL;
+	    goto linefail;
 	line = skipwhite(line);
 
 	// Undo any command modifiers.
@@ -4828,9 +4890,25 @@ nextline:
 	    iemsg("Type stack underflow");
 	    return FAIL;
 	}
+	continue;
+
+linefail:
+	// With ":source ++dryrun" go on with the next line, to report the
+	// errors in the rest of the function as well.
+	if (!source_dryrun)
+	    return FAIL;
+	if (*errormsg != NULL)
+	{
+	    emsg(*errormsg);
+	    *errormsg = NULL;
+	}
+	failed = TRUE;
+	did_emsg_before = did_emsg;
+	cctx->ctx_type_stack.ga_len = stack_len;
+	line = (char_u *)"";
     } // END of the loop over all the function body lines.
 
-    return OK;
+    return failed ? FAIL : OK;
 }
 
 /*
@@ -5231,7 +5309,7 @@ delete_def_function_contents(dfunc_T *dfunc, int mark_deleted)
     void
 unlink_def_function(ufunc_T *ufunc)
 {
-    if (ufunc->uf_dfunc_idx <= 0)
+    if (ufunc->uf_dfunc_idx <= 0 || def_functions.ga_data == NULL)
 	return;
 
     dfunc_T *dfunc = ((dfunc_T *)def_functions.ga_data)

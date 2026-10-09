@@ -1390,6 +1390,64 @@ func Test_out_cb_lambda()
   endtry
 endfunc
 
+func Test_out_cb_blob_mode()
+  let g:Ch_blob_bytes = []
+  func OutBlobCb(chan, msg)
+    call assert_equal(v:t_blob, type(a:msg))
+    let g:Ch_blob_bytes += blob2list(a:msg)
+  endfunc
+
+  let cmd = [s:python, '-c',
+        \ 'import sys,time;'
+        \ .. 'sys.stdout.buffer.write(bytes([0, 1, 2, 10, 255]));'
+        \ .. 'sys.stdout.flush();'
+        \ .. 'time.sleep(0.1)']
+  let job = job_start(cmd, #{
+        \ out_mode: 'blob',
+        \ out_cb: 'OutBlobCb',
+        \ })
+  try
+    call WaitForAssert({-> assert_equal([0, 1, 2, 10, 255], g:Ch_blob_bytes)})
+  finally
+    call job_stop(job)
+    delfunc OutBlobCb
+    unlet g:Ch_blob_bytes
+  endtry
+endfunc
+
+func Test_pty_out_cb_blob_mode()
+  CheckUnix
+
+  let g:Ch_blob_bytes = []
+  func PtyBlobCb(chan, msg)
+    call assert_equal(v:t_blob, type(a:msg))
+    let g:Ch_blob_bytes += blob2list(a:msg)
+  endfunc
+
+  " Put the pty in raw mode so the line discipline does not translate LF
+  " to CRLF or strip NUL bytes, then write bytes that include NULs on
+  " both sides of an embedded LF.
+  let cmd = [s:python, '-c',
+        \ 'import os,sys,time;'
+        \ .. 'os.system("stty raw -echo");'
+        \ .. 'sys.stdout.buffer.write(bytes([65, 0, 66, 10, 67, 0, 68]));'
+        \ .. 'sys.stdout.flush();'
+        \ .. 'time.sleep(0.1)']
+  let job = job_start(cmd, #{
+        \ pty: 1,
+        \ out_mode: 'blob',
+        \ out_cb: 'PtyBlobCb',
+        \ })
+  try
+    call WaitForAssert({-> assert_equal(
+          \ [65, 0, 66, 10, 67, 0, 68], g:Ch_blob_bytes)})
+  finally
+    call job_stop(job)
+    delfunc PtyBlobCb
+    unlet g:Ch_blob_bytes
+  endtry
+endfunc
+
 func Test_close_and_exit_cb()
   let g:test_is_flaky = 1
   let g:retdict = {'ret': {}}
@@ -2751,9 +2809,20 @@ func LspTests(port)
   "       \ 'result': {'method': 'echo', 'jsonrpc': '2.0',
   "       \ 'params': {'m': 'raw-message'}}}], g:lspNotif)
 
+  " Test for sending a message with a String id, which is what answering a
+  " request from a server that named it with one takes
+  let g:lspNotif = []
+  call ch_sendexpr(ch, #{method: 'echo', id: 'e8a1-4c2f',
+        \ params: #{s: 'msg-with-string-id'}})
+  " Send a ping to wait for all the notification messages to arrive
+  call assert_equal('alive', ch_evalexpr(ch, #{method: 'ping'}).result)
+  call assert_equal([#{jsonrpc: '2.0', result:
+        \ #{method: 'echo', jsonrpc: '2.0', id: 'e8a1-4c2f',
+        \ params: #{s: 'msg-with-string-id'}}}], g:lspNotif)
+
   " Invalid arguments to ch_evalexpr() and ch_sendexpr()
-  call assert_fails('call ch_sendexpr(ch, #{method: "cookie", id: "cookie"})',
-        \ 'E475:')
+  call assert_fails('call ch_sendexpr(ch, #{method: "cookie", id: "cookie"},'
+        \ .. ' #{callback: "LspOtCb"})', 'E475:')
   call assert_fails('call ch_evalexpr(ch, #{method: "ping", id: [{}]})', 'E475:')
   call assert_fails('call ch_evalexpr(ch, [1, 2, 3])', 'E1206:')
   call assert_fails('call ch_sendexpr(ch, "abc")', 'E1206:')
@@ -2829,6 +2898,171 @@ func Test_listen_info_no_hostname()
     let ch = ch_listen('0')
     call assert_fails("call ch_info(ch).hostname", 'E716:')
     call ch_close(ch)
+endfunc
+
+" A Unix domain socket must work when it is the first socket used in a Vim
+" process, so run it in a separate Vim.
+func Test_listen_unix_first_socket()
+  let sockpath = fnamemodify('Xlistensock', ':p')
+  if len(sockpath) >= 100
+    throw 'Skipped: socket path is too long'
+  endif
+  let after =<< trim eval [CODE]
+    func OnAccept(ch, addr)
+      call ch_setoptions(a:ch, #{{mode: 'raw'}})
+      call add(g:result, 'accept ' .. a:addr)
+    endfunc
+    let g:result = []
+    let server = ch_listen('unix:{sockpath}', #{{callback: 'OnAccept'}})
+    call add(g:result, 'listen ' .. ch_status(server))
+    let client = ch_open('unix:{sockpath}', #{{mode: 'raw'}})
+    call add(g:result, 'open ' .. ch_status(client))
+    let cnt = 0
+    while len(g:result) < 3 && cnt < 500
+      sleep 10m
+      let cnt += 1
+    endwhile
+    call writefile(g:result, 'Xlistenresult')
+    qall!
+  [CODE]
+  if RunVim([], after, '')
+    call assert_equal(['accept unix:anonymous', 'listen open', 'open open'],
+          \ sort(readfile('Xlistenresult')))
+  endif
+  call delete('Xlistenresult')
+  call delete('Xlistensock')
+endfunc
+
+" A Vim started with --stdio-channel answers on its stdin and stdout.
+func Test_stdio_channel()
+  if has('win32') && has('gui_running')
+    throw 'Skipped: gvim.exe cannot run without the GUI'
+  endif
+  let lines =<< trim END
+    func OnMessage(ch, msg)
+      if a:msg.method == 'ping'
+        call ch_sendexpr(a:ch, #{id: a:msg.id, result: 'pong ' .. a:msg.params})
+      elseif a:msg.method == 'again'
+        try
+          call ch_open('stdio')
+          let err = 'none'
+        catch
+          let err = v:exception
+        endtry
+        call ch_sendexpr(a:ch, #{id: a:msg.id, result: err})
+      endif
+    endfunc
+    let ch = ch_open('stdio', #{mode: 'lsp', callback: 'OnMessage'})
+    " Output of Vim itself must not get into the channel.
+    set verbose=1
+    echo 'noise'
+  END
+  call writefile(lines, 'Xstdio_server.vim', 'D')
+
+  let job = job_start([GetVimProg(), '--clean', '--stdio-channel',
+        \ '-S', 'Xstdio_server.vim'], #{in_mode: 'lsp', out_mode: 'lsp'})
+  call assert_equal('run', job_status(job))
+
+  let resp = ch_evalexpr(job, #{method: 'ping', params: 'x'}, #{timeout: 5000})
+  call assert_equal('pong x', resp->get('result', resp))
+  let resp = ch_evalexpr(job, #{method: 'again'}, #{timeout: 5000})
+  call assert_match('E1583:', resp->get('result', ''))
+
+  " Without --stdio-channel the address cannot be used.
+  call assert_fails("call ch_open('stdio')", 'E1582:')
+
+  " The child exits when its stdin is closed.
+  call ch_close(job)
+  call WaitForAssert({-> assert_equal('dead', job_status(job))})
+  call job_stop(job)
+endfunc
+
+" A message that is only partly read when Vim gets busy with blocking reads
+" on another channel is not dropped: the rest of it was there to be read.
+func Test_lsp_incomplete_message_while_blocked()
+  if has('win32') && has('gui_running')
+    throw 'Skipped: gvim.exe cannot run without the GUI'
+  endif
+  let lines =<< trim END
+    func OnMessage(ch, msg)
+      if a:msg.method == 'quick'
+        call timer_start(10, {-> ch_sendexpr(a:ch, #{id: a:msg.id, result: 1})})
+      endif
+    endfunc
+    call ch_open('stdio', #{mode: 'lsp', callback: 'OnMessage'})
+  END
+  call writefile(lines, 'Xstdio_child.vim', 'D')
+  let lines =<< trim END
+    let notes = 0
+    let child = job_start([v:progpath, '--clean', '--stdio-channel',
+          \ '-S', 'Xstdio_child.vim'], #{in_mode: 'lsp', out_mode: 'lsp'})
+    " A notification, which ch_sendexpr() would wait for an answer to.
+    func Notify(method)
+      let body = json_encode(#{jsonrpc: '2.0', method: a:method})
+      call ch_sendraw(g:stdio,
+            \ 'Content-Length: ' .. strlen(body) .. "\r\n\r\n" .. body)
+    endfunc
+    func Block(timer)
+      call Notify('blocking')
+      for i in range(30)
+        call ch_evalexpr(g:child, #{method: 'quick'}, #{timeout: 5000})
+      endfor
+    endfunc
+    func OnMessage(ch, msg)
+      if a:msg.method == 'note'
+        let g:notes += 1
+      elseif a:msg.method == 'count'
+        call ch_sendexpr(a:ch, #{id: a:msg.id, result: g:notes})
+      elseif a:msg.method == 'block'
+        call ch_sendexpr(a:ch, #{id: a:msg.id, result: 'ok'})
+        call timer_start(10, 'Block')
+      endif
+    endfunc
+    let stdio = ch_open('stdio', #{mode: 'lsp', callback: 'OnMessage'})
+  END
+  call writefile(lines, 'Xstdio_busy.vim', 'D')
+  let g:blocking = 0
+  func! BusyMessage(ch, msg)
+    if a:msg->get('method', '') == 'blocking'
+      let g:blocking = 1
+    endif
+  endfunc
+  let job = job_start([GetVimProg(), '--clean', '--stdio-channel',
+        \ '-S', 'Xstdio_busy.vim'], #{in_mode: 'lsp', out_mode: 'lsp',
+        \ callback: 'BusyMessage'})
+  call assert_equal('run', job_status(job))
+
+  " Nothing may go out between the two halves: whatever is sent would be taken
+  " for the rest of the first one.  So "block" goes first, the first half is
+  " read while the other Vim is still idle, and the second half waits for word
+  " that the blocking reads have started.
+  call ch_evalexpr(job, #{method: 'block'}, #{timeout: 5000})
+  let body = json_encode(#{method: 'note', jsonrpc: '2.0',
+        \ params: #{text: repeat('x', 1000)}})
+  let framed = 'Content-Length: ' .. strlen(body) .. "\r\n\r\n" .. body
+  let half = strlen(framed) / 2
+  call ch_sendraw(job, framed[: half - 1])
+  call WaitForAssert({-> assert_equal(1, g:blocking)})
+  call ch_sendraw(job, framed[half :])
+
+  " Ask more than once: a notification that is only late turns up in a later
+  " answer, one that was discarded never does.
+  let counts = []
+  for i in range(5)
+    let resp = ch_evalexpr(job, #{method: 'count'}, #{timeout: 5000})
+    " An empty Dict is no answer at all, which is not a count of zero.
+    let got = type(resp) == v:t_dict ? resp->get('result', resp) : resp
+    call add(counts, got)
+    if type(got) == v:t_number && got == 1
+      break
+    endif
+    sleep 200m
+  endfor
+  call assert_equal(1, counts[-1], 'the count over time: ' .. string(counts))
+
+  call ch_close(job)
+  call WaitForAssert({-> assert_equal('dead', job_status(job))})
+  call job_stop(job)
 endfunc
 
 func Test_channel_lsp_mode()

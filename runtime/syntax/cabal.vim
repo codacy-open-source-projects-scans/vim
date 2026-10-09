@@ -5,7 +5,10 @@
 " Previous Maintainer:	Vincent Berthoux <twinside@gmail.com>
 " File Types:   .cabal
 " Last Change:  22 Oct 2022
+"
+" 2026 Apr 29 by Léana: add missing haskell language editions
 " 2026 Apr 20 by Vim project: remove wrong oneline keyword #20018
+" 2026 Jun 26 by Vim project: add elif keyword #20623
 "
 " v1.6: Added support for foreign-libraries
 "       Added highlighting for various fields
@@ -51,7 +54,7 @@ syn iskeyword @,48-57,192-255,-
 " Case sensitive matches
 syn case match
 
-syn keyword cabalConditional	if else
+syn keyword cabalConditional	if elif else
 syn keyword cabalFunction	os arche impl flag
 syn match cabalComment		/--.*$/
 
@@ -193,7 +196,9 @@ syn match cabalVersionRegionB
 	\ contains=cabalStatementRegion,cabalVersionOperator,cabalVersion
 	\ /^\s*\%(cabal-\)\?version\s*:.*$/
 
-syn keyword cabalLanguage Haskell98 Haskell2010
+" See the following link for all Haskell language editions supported by Cabal.
+" https://cabal.readthedocs.io/en/stable/cabal-package-description-file.html#pkg-field-default-language
+syn keyword cabalLanguage Haskell98 Haskell2010 GHC2021 GHC2024
 
 " title region
 syn match cabalName contained /:\@<=.*/

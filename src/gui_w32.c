@@ -375,6 +375,11 @@ static WPARAM		s_wParam = 0;
 static LPARAM		s_lParam = 0;
 
 static HWND		s_textArea = NULL;
+
+// Set when the text area was painted with the background color only, because
+// the screen contents were not available yet.
+static bool		s_textarea_bg_only = false;
+
 static UINT		s_uMsg = 0;
 
 static char_u		*s_textfield; // Used by dialogs to pass back strings
@@ -1628,6 +1633,10 @@ gui_mch_new_colors(void)
     prevBrush = (HBRUSH)SetClassLongPtr(
 				s_hwnd, GCLP_HBRBACKGROUND, (LONG_PTR)s_brush);
     InvalidateRect(s_hwnd, NULL, TRUE);
+    // The text area is a child window, the invalidation above does not
+    // include it.
+    if (s_textarea_bg_only && s_textArea != NULL)
+	InvalidateRect(s_textArea, NULL, TRUE);
     DeleteObject(prevBrush);
 }
 
@@ -1652,7 +1661,17 @@ gui_mch_open(void)
     // Actually open the window, if not already visible
     // (may be done already in gui_mch_set_shellsize)
     if (!IsWindowVisible(s_hwnd))
+    {
 	ShowWindow(s_hwnd, SW_SHOWDEFAULT);
+
+	// Waiting for the message loop leaves the window undrawn while a
+	// slow VimEnter autocommand runs. The flush presents the DirectX draw.
+	if (s_textArea != NULL)
+	{
+	    UpdateWindow(s_textArea);
+	    gui_mch_flush();
+	}
+    }
 
 #ifdef MSWIN_FIND_REPLACE
     // Init replace string here, so that we keep it when re-opening the
@@ -2593,6 +2612,46 @@ remove_any_timer(void)
     }
 }
 
+#ifdef FEAT_CLIENTSERVER
+// A client message may be handled re-entrantly, e.g. during a redraw while a
+// command line is being read; inserting the keys into the typeahead buffer
+// then corrupts it. Store them here until a safe point.
+static garray_T	server_pending_ga = {0, 0, 0, 0, NULL};
+
+/*
+ * Store keys received from a client, to be inserted into the typeahead buffer
+ * later by server_flush_input().
+ */
+    void
+server_add_input(char_u *str)
+{
+    if (server_pending_ga.ga_data == NULL)
+	ga_init2(&server_pending_ga, 1, 200);
+    ga_concat(&server_pending_ga, str);
+}
+
+/*
+ * Insert postponed keys received from a client, but only when the typeahead
+ * buffer is empty, so that they are not mixed into a command that is currently
+ * being read.
+ */
+    static void
+server_flush_input(void)
+{
+    char_u  *str;
+
+    if (server_pending_ga.ga_len == 0 || typebuf.tb_len != 0)
+	return;
+    str = vim_strnsave(server_pending_ga.ga_data, server_pending_ga.ga_len);
+    server_pending_ga.ga_len = 0;
+    if (str != NULL)
+    {
+	server_to_input_buf(str);
+	vim_free(str);
+    }
+}
+#endif
+
 /*
  * GUI input routine called by gui_wait_for_chars().  Waits for a character
  * from the keyboard.
@@ -2603,7 +2662,7 @@ remove_any_timer(void)
  * or FAIL otherwise.
  */
     int
-gui_mch_wait_for_chars(int wtime)
+gui_mch_wait_for_chars(long wtime)
 {
     int		focus;
 
@@ -2651,6 +2710,10 @@ gui_mch_wait_for_chars(int wtime)
 	    MSG msg;
 
 	    parse_queued_messages();
+# ifdef FEAT_CLIENTSERVER
+	    // Insert keys from a client that were postponed to this safe point.
+	    server_flush_input();
+# endif
 # ifdef FEAT_TIMERS
 	    if (did_add_timer)
 		break;
@@ -3465,6 +3528,15 @@ _OnPaint(
 
     if (!IsRectEmpty(&ps.rcPaint))
     {
+	// The text area has no background brush, thus undefined pixels remain
+	// visible until the screen contents are drawn.
+	if (!screen_cleared || ScreenLines == NULL)
+	{
+	    clear_rect(&ps.rcPaint);
+	    s_textarea_bg_only = true;
+	}
+	else
+	    s_textarea_bg_only = false;
 	gui_redraw(ps.rcPaint.left, ps.rcPaint.top,
 		ps.rcPaint.right - ps.rcPaint.left + 1,
 		ps.rcPaint.bottom - ps.rcPaint.top + 1);
@@ -8904,11 +8976,11 @@ gui_mch_register_sign(char_u *signfile)
     {
 	int do_load = 1;
 
-	if (!STRICMP(ext, ".bmp"))
+	if (STRICMP(ext, ".bmp") == 0)
 	    sign.uType =  IMAGE_BITMAP;
-	else if (!STRICMP(ext, ".ico"))
+	else if (STRICMP(ext, ".ico") == 0)
 	    sign.uType =  IMAGE_ICON;
-	else if (!STRICMP(ext, ".cur") || !STRICMP(ext, ".ani"))
+	else if (STRICMP(ext, ".cur") == 0 || STRICMP(ext, ".ani") == 0)
 	    sign.uType =  IMAGE_CURSOR;
 	else
 	    do_load = 0;
@@ -8918,7 +8990,7 @@ gui_mch_register_sign(char_u *signfile)
 		    gui.char_width * 2, gui.char_height,
 		    LR_LOADFROMFILE | LR_CREATEDIBSECTION);
 # ifdef FEAT_XPM_W32
-	if (!STRICMP(ext, ".xpm"))
+	if (STRICMP(ext, ".xpm") == 0)
 	{
 	    sign.uType = IMAGE_XPM;
 	    LoadXpmImage((char *)signfile, (HBITMAP *)&sign.hImage,
@@ -9458,3 +9530,182 @@ test_gui_w32_sendevent(char_u *event, dict_T *args)
     }
 }
 #endif
+
+#if defined(FEAT_IMAGE_GUI)
+
+typedef struct
+{
+    HBITMAP hbm;
+    HDC	    hdc;
+} image_gdi_T;
+
+/*
+ * Convert the popup's RGB(A) pixel buffer into a 32-bit BGRX buffer. "dst" must
+ * be large enough for iw * ih * 4 bytes.  When has_alpha is true, the source
+ * has 4 bytes per pixel and the alpha channel is flattened onto the GUI window
+ * background colour (pre-multiplied blend).
+ */
+    static void
+upload_popup_image_pixels(uint8_t *dst, uint8_t *src, int iw, int ih, image_format_T fmt)
+{
+    int		y, x;
+    int		stride = iw * 4;
+    int		src_bpp = fmt == IMAGE_FORMAT_RGBA ? 4 : 3;
+    COLORREF	bg = fmt == IMAGE_FORMAT_RGBA ? gui_mch_get_rgb(gui.back_pixel) : 0;
+    BYTE	bg_r = GetRValue(bg);
+    BYTE	bg_g = GetGValue(bg);
+    BYTE	bg_b = GetBValue(bg);
+
+    for (y = 0; y < ih; y++)
+    {
+	uint8_t *s = src + (size_t)y * iw * src_bpp;
+	uint8_t *d = dst + (size_t)y * stride;
+
+	for (x = 0; x < iw; x++)
+	{
+	    if (fmt == IMAGE_FORMAT_RGBA)
+	    {
+		int a = s[3];
+
+		if (a == 255)
+		{
+		    d[0] = s[2];
+		    d[1] = s[1];
+		    d[2] = s[0];
+		}
+		else if (a == 0)
+		{
+		    d[0] = (uint8_t )bg_b;
+		    d[1] = (uint8_t)bg_g;
+		    d[2] = (uint8_t)bg_r;
+		}
+		else
+		{
+		    d[0] = (uint8_t)((s[2] * a + bg_b * (255 - a)) / 255);
+		    d[1] = (uint8_t)((s[1] * a + bg_g * (255 - a)) / 255);
+		    d[2] = (uint8_t)((s[0] * a + bg_r * (255 - a)) / 255);
+		}
+	    }
+	    else
+	    {
+		d[0] = s[2];	// B
+		d[1] = s[1];	// G
+		d[2] = s[0];	// R
+	    }
+	    d[3] = 0;
+	    s += src_bpp;
+	    d += 4;
+	}
+    }
+}
+
+    int
+image_gui_init(image_T *img)
+{
+    image_gdi_T *ctx = ALLOC_CLEAR_ONE(image_gdi_T);
+    BITMAPINFO	bmi;
+    HBITMAP	hbm;
+    HDC		mem_dc;
+    int		iw, ih;
+    void	*bits = NULL;
+
+    if (ctx == NULL)
+	return FAIL;
+
+    image_get_dimensions(img, &iw, &ih);
+
+    CLEAR_FIELD(bmi);
+    bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    bmi.bmiHeader.biWidth = iw;
+    bmi.bmiHeader.biHeight = -ih; // Top-down
+    bmi.bmiHeader.biPlanes = 1;
+    bmi.bmiHeader.biBitCount = 32;
+    bmi.bmiHeader.biCompression = BI_RGB;
+
+    hbm = CreateDIBSection(s_hdc, &bmi, DIB_RGB_COLORS, &bits, NULL, 0);
+    if (hbm == NULL || bits == NULL)
+    {
+	if (hbm != NULL)
+	    DeleteObject(hbm);
+	return false;
+    }
+
+    mem_dc = CreateCompatibleDC(s_hdc);
+    if (mem_dc == NULL)
+    {
+	DeleteObject(hbm);
+	return false;
+    }
+
+    SelectObject(mem_dc, hbm);
+    upload_popup_image_pixels((uint8_t *)bits, img->data, iw, ih, img->fmt);
+
+    ctx->hbm = hbm;
+    ctx->hdc = mem_dc;
+
+    img->backend_data = ctx;
+    return OK;
+}
+
+    void
+image_gui_uninit(image_T *img)
+{
+    image_gdi_T *ctx = img->backend_data;
+
+    DeleteObject(ctx->hbm);
+    DeleteDC(ctx->hdc);
+    vim_free(ctx);
+}
+
+    int
+image_placement_gui_init(image_placement_T *place UNUSED)
+{
+    return OK;
+}
+
+    void
+image_placement_gui_uninit(image_placement_T *place UNUSED)
+{
+}
+
+    void
+image_placement_gui_draw(image_placement_T *place)
+{
+    image_T	    *img = place->img;
+    image_gdi_T	    *ictx = img->backend_data;
+    pixman_box32_t  *rects;
+    int		    n_rects;
+
+    rects = pixman_region32_rectangles(&place->visible, &n_rects);
+    if (rects == NULL || n_rects == 0)
+	return;
+
+# if defined(FEAT_DIRECTX)
+    // Commit any pending DirectWrite output so popup text and borders are on
+    // s_hdc before we blit on top.
+    if (IS_ENABLE_DIRECTX())
+	DWriteContext_Flush(s_dwc);
+# endif
+
+    for (int i = 0; i < n_rects; i++)
+    {
+	pixman_box32_t	rect = rects[i];
+	int		row, col;
+	int		posx, posy;
+	int		x, y, w, h;
+
+	image_placement_subrect(place, rect, &row, &col, &x, &y, &w, &h, true);
+	posx = FILL_X(col);
+	posy = FILL_Y(row);
+
+	BitBlt(s_hdc, posx, posy, w, h, ictx->hdc, x, y, SRCCOPY);
+
+    }
+}
+
+    void
+image_placement_gui_clear(image_placement_T *place UNUSED)
+{
+}
+
+#endif // FEAT_IMAGE_GUI

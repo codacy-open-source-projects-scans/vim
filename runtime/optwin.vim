@@ -1,7 +1,7 @@
 " These commands create the option window.
 "
 " Maintainer:	The Vim Project <https://github.com/vim/vim>
-" Last Change:	2026 Apr 21
+" Last Change:	2026 Sep 30
 " Former Maintainer:	Bram Moolenaar <Bram@vim.org>
 
 " If there already is an option window, jump to that one.
@@ -315,6 +315,8 @@ call append("$", "\t" .. s:global_or_local)
 call <SID>OptionG("tc", &tc)
 call <SID>AddOption("tagrelative", gettext("file names in a tags file are relative to the tags file"))
 call <SID>BinOptionG("tr", &tr)
+call <SID>AddOption("tagsecure", gettext("a :tag command cannot access remote files"))
+call <SID>BinOptionG("tsc", &tsc)
 call <SID>AddOption("tagstack", gettext("a :tag command will use the tagstack"))
 call <SID>BinOptionG("tgst", &tgst)
 call <SID>AddOption("showfulltag", gettext("when completing tags in Insert mode show more info"))
@@ -613,6 +615,8 @@ call <SID>BinOptionG("wiv", &wiv)
 
 call <SID>AddOption("keyprotocol", gettext("what keyboard protocol to use for which terminal"))
 call <SID>OptionG("kpc", &kpc)
+call <SID>AddOption("imageprotocol", gettext("what image backend to use for which terminal"))
+call <SID>OptionG("ipc", &ipc)
 call <SID>AddOption("esckeys", gettext("recognize keys that start with <Esc> in Insert mode"))
 call <SID>BinOptionG("ek", &ek)
 call <SID>AddOption("scrolljump", gettext("minimal number of lines to scroll at a time"))

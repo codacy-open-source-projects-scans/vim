@@ -696,6 +696,7 @@ char *(*dyn_libintl_bindtextdomain)(const char *, const char *)
 char *(*dyn_libintl_bind_textdomain_codeset)(const char *, const char *)
 				       = null_libintl_bind_textdomain_codeset;
 int (*dyn_libintl_wputenv)(const wchar_t *) = null_libintl_wputenv;
+int *dyn_libintl_nl_msg_cat_cntr = NULL;
 
     int
 dyn_libintl_init(void)
@@ -770,6 +771,11 @@ dyn_libintl_init(void)
     if (dyn_libintl_wputenv == NULL || dyn_libintl_wputenv == _wputenv)
 	dyn_libintl_wputenv = null_libintl_wputenv;
 
+    // The _nl_msg_cat_cntr variable is optional.  It is used to make gettext
+    // drop the translations it cached.
+    dyn_libintl_nl_msg_cat_cntr = (int *)GetProcAddress(hLibintlDLL,
+							 "_nl_msg_cat_cntr");
+
     return 1;
 }
 
@@ -785,6 +791,7 @@ dyn_libintl_end(void)
     dyn_libintl_bindtextdomain	= null_libintl_bindtextdomain;
     dyn_libintl_bind_textdomain_codeset = null_libintl_bind_textdomain_codeset;
     dyn_libintl_wputenv		= null_libintl_wputenv;
+    dyn_libintl_nl_msg_cat_cntr	= NULL;
 }
 
     static char *
@@ -2689,6 +2696,34 @@ executable_file(char *name, char_u **path)
 }
 
 /*
+ * Check for a matching prefix; "name" includes the trailing wildcard.
+ * An inconclusive search (e.g. a directory which cannot be enumerated) must
+ * not skip the normal checks.
+ */
+    static bool
+executable_prefix_exists(char_u *name)
+{
+    WCHAR		*wn;
+    WIN32_FIND_DATAW	data;
+    HANDLE		handle;
+    DWORD		error;
+
+    wn = enc_to_utf16(name, NULL);
+    if (wn == NULL)
+	return true;
+    handle = FindFirstFileExW(wn, FindExInfoBasic, &data,
+					    FindExSearchNameMatch, NULL, 0);
+    error = GetLastError();
+    vim_free(wn);
+    if (handle != INVALID_HANDLE_VALUE)
+    {
+	FindClose(handle);
+	return true;
+    }
+    return error != ERROR_FILE_NOT_FOUND && error != ERROR_PATH_NOT_FOUND;
+}
+
+/*
  * If "use_path" is TRUE: Return TRUE if "name" is in $PATH.
  * If "use_path" is FALSE: Return TRUE if "name" exists.
  * If "use_pathext" is TRUE search "name" with extensions in $PATHEXT.
@@ -2714,6 +2749,8 @@ executable_exists(
     int		pathext_allocated = FALSE;
     char_u	*shname = NULL;
     int		noext = FALSE;
+    bool	simple_pathext = true;
+    int		ext_count = 0;
     int		retval = FALSE;
 
     if (namelen >= sizeof(buf))	// safety check
@@ -2737,6 +2774,7 @@ executable_exists(
 	if (noext == FALSE)
 	{
 	    char_u  *e;
+	    char_u  *q;
 	    size_t  plen;
 
 	    /*
@@ -2750,6 +2788,8 @@ executable_exists(
 			    || (p[0] == '.' && (p[1] == NUL || p[1] == ';')))
 		{
 		    // Skip empty or single ".".
+		    if (*p == '.')
+			simple_pathext = false;
 		    ++p;
 		    continue;
 		}
@@ -2757,6 +2797,12 @@ executable_exists(
 		if (e == NULL)
 		    e = pathext.string + pathext.length;
 		plen = (size_t)(e - p);
+		++ext_count;
+		if (*p != '.')
+		    simple_pathext = false;
+		for (q = p + 1; q < e; ++q)
+		    if (!ASCII_ISALNUM(*q))
+			simple_pathext = false;
 
 		if (_strnicoll(name + namelen - plen, (char *)p, plen) == 0)
 		{
@@ -2857,6 +2903,30 @@ executable_exists(
 		"%.*s%s%s", (int)(e - p), p,
 		!after_pathsep(p, e) ? PATHSEPSTR : "",
 		name);
+	}
+
+	// Most directories in $PATH do not contain this command.  One prefix
+	// search can avoid a separate file query for every extension.  With
+	// few extensions, or an explicit executable suffix, it is cheaper to
+	// use the normal checks.  Leave unusual paths and suffixes to those
+	// checks as well, to preserve their path normalization and semantics.
+	if (!noext && simple_pathext && ext_count >= 3 && buflen > 0
+		&& buflen + 2 <= sizeof(buf)
+		&& buf[buflen - 1] != '.' && buf[buflen - 1] != ' '
+		&& vim_strpbrk(buf, (char_u *)"*?") == NULL
+		&& vim_strchr(gettail(buf), ':') == NULL)
+	{
+	    bool exists;
+
+	    buf[buflen] = '*';
+	    buf[buflen + 1] = NUL;
+	    exists = executable_prefix_exists(buf);
+	    buf[buflen] = NUL;
+	    if (!exists)
+	    {
+		p = e;
+		continue;
+	    }
 	}
 
 	/*
@@ -4681,6 +4751,48 @@ mch_set_winsize_now(void)
     }
     suppress_winsize = 0;
 }
+
+# if defined(FEAT_IMAGE) || defined(FEAT_EVAL)
+/*
+ * Try to get the current terminal cell size in pixels.
+ */
+    void
+mch_calc_cell_size(struct cellsize *cs_out)
+{
+    CONSOLE_FONT_INFOEX cfi;
+    DWORD cmodeold;
+    DWORD cmodein;
+
+    cs_out->cs_xpixel = -1;
+    cs_out->cs_ypixel = -1;
+
+    if (g_hConOut == INVALID_HANDLE_VALUE)
+	return;
+
+    cfi.cbSize = sizeof(cfi);
+    if (GetCurrentConsoleFontEx(g_hConOut, FALSE, &cfi)
+	    && cfi.dwFontSize.X > 0 && cfi.dwFontSize.Y > 0)
+    {
+	cs_out->cs_xpixel = cfi.dwFontSize.X;
+	cs_out->cs_ypixel = cfi.dwFontSize.Y;
+	return;
+    }
+
+    GetConsoleMode(g_hConIn, &cmodein);
+    cmodeold = cmodein;
+    cmodein &= ~(ENABLE_LINE_INPUT | ENABLE_ECHO_INPUT
+	    | ENABLE_PROCESSED_INPUT);
+    cmodein |= ENABLE_VIRTUAL_TERMINAL_INPUT;
+
+    if (SetConsoleMode(g_hConIn, cmodein))
+    {
+	// We will receive the window dimensions later
+	vtp_printf("\033[14t");
+	SetConsoleMode(g_hConIn, cmodeold);
+    }
+}
+# endif
+
 #endif
 
     static BOOL
@@ -7104,9 +7216,19 @@ cursor_visible(BOOL fVisible)
     s_cursor_visible = fVisible;
 
     if (vtp_working)
+    {
+	// In vtp mode, visibility is controlled solely by DECTCEM.  Skip
+	// mch_update_cursor() since shape is independent of visibility and
+	// re-emitting DECSCUSR can cause the terminal to briefly redisplay
+	// the cursor while a redraw is in progress.
 	vtp_printf("\033[?25%c", fVisible ? 'h' : 'l');
+	return;
+    }
 
 # ifdef MCH_CURSOR_SHAPE
+    // Non-vtp Windows console: SetConsoleCursorInfo() consults
+    // s_cursor_visible inside mch_set_cursor_shape(), so the call is needed
+    // to apply the new visibility.
     mch_update_cursor();
 # endif
 }
@@ -7328,6 +7450,52 @@ sgrn2cn(
     return p && p[0] == 0x0a && p[1] == '\033' ? ++p : NULL;
 }
 
+static bool in_dcs = false;	// inside a DCS (sixel) sequence
+static bool dcs_esc = false;	// last DCS byte written was ESC
+
+/*
+ * Write "len" bytes at "s" with WriteConsoleW, so that the console's own VT
+ * parser processes them.  Needed for DCS sequences when USE_VTP is off.
+ */
+    static void
+write_vt(char_u *s, int len)
+{
+    int		wlen;
+    WCHAR	*ws;
+    DWORD	written;
+
+    wlen = MultiByteToWideChar(CP_UTF8, 0, (LPCSTR)s, len, NULL, 0);
+    if (wlen <= 0)
+	return;
+    ws = ALLOC_MULT(WCHAR, wlen);
+    if (ws == NULL)
+	return;
+    MultiByteToWideChar(CP_UTF8, 0, (LPCSTR)s, len, ws, wlen);
+    WriteConsoleW(g_hConOut, ws, wlen, &written, NULL);
+    vim_free(ws);
+}
+
+/*
+ * Return the pointer just after the ST (ESC '\') that ends a DCS sequence.
+ * Returns "end" when the ST is not in this chunk; "in_dcs" then stays set so
+ * that the next mch_write() call continues the scan.
+ */
+    static char_u *
+skip_dcs(char_u *s, char_u *end)
+{
+    for (char_u *p = s; p < end; ++p)
+    {
+	if (dcs_esc && *p == '\\')
+	{
+	    dcs_esc = false;
+	    in_dcs = false;
+	    return p + 1;
+	}
+	dcs_esc = *p == ESC;
+    }
+    return end;
+}
+
 /*
  * mch_write(): write the output buffer to the screen, translating ESC
  * sequences into calls to console output routines.
@@ -7362,6 +7530,18 @@ mch_write(
 	{
 	    redraw_all_later(UPD_CLEAR);
 	    return;
+	}
+
+	if (in_dcs)
+	{
+	    // Continuation of a DCS sequence split over several writes.
+	    int	l = (int)(skip_dcs(s, end) - s);
+
+	    if (vtp_working)
+		write_vt(s, l);
+	    len -= l - 1;
+	    s += l;
+	    continue;
 	}
 
 	while (s + ++prefix < end)
@@ -7665,6 +7845,20 @@ notsgr:
 		    vtp_printf("%.*s", l + 1, s);
 		l++;
 	    }
+	    len -= l - 1;
+	    s += l;
+	}
+	else if (s[0] == ESC && len >= 2-1 && s[1] == 'P')
+	{
+	    // DCS (e.g. sixel image): write_chars() would print it as raw text
+	    // when USE_VTP is off, so let the console's VT parser handle it.
+	    int	l;
+
+	    in_dcs = true;
+	    dcs_esc = false;
+	    l = (int)(skip_dcs(s + 2, end) - s);
+	    if (vtp_working)
+		write_vt(s, l);
 	    len -= l - 1;
 	    s += l;
 	}
@@ -8090,7 +8284,8 @@ mch_fopen(const char *name, const char *mode)
     vim_free(wm);
 
 #if defined(DEBUG) && _MSC_VER >= 1400
-    _set_fmode(oldMode);
+    if (oldMode != 0)
+	_set_fmode(oldMode);
 #endif
     return f;
 }

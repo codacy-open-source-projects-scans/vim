@@ -147,6 +147,8 @@ alloc_type(type_T *type)
 	return type;
 
     ret = ALLOC_ONE(type_T);
+    if (ret == NULL)
+	return NULL;
     *ret = *type;
 
     if (ret->tt_member != NULL)
@@ -1047,6 +1049,20 @@ check_typval_arg_type(
 }
 
 /*
+ * Return true if "expected" is list<any> or dict<any> and "actual_tv" is a
+ * list or dict of that kind, which matches whatever its values are.
+ */
+    static bool
+matches_listdict_any(type_T *expected, typval_T *actual_tv)
+{
+    return (expected->tt_type == VAR_LIST || expected->tt_type == VAR_DICT)
+	    && actual_tv->v_type == expected->tt_type
+	    && expected->tt_member != NULL
+	    && (expected->tt_member->tt_type == VAR_ANY
+		|| expected->tt_member->tt_type == VAR_UNKNOWN);
+}
+
+/*
  * Return FAIL if "expected" and "actual" don't match.
  * When "argidx" > 0 it is included in the error message.
  */
@@ -1059,6 +1075,10 @@ check_typval_type(type_T *expected, typval_T *actual_tv, where_T where)
 
     if (expected == NULL)
 	return OK;  // didn't expect anything.
+
+    // No need to go through the values of a possibly big list or dict.
+    if (matches_listdict_any(expected, actual_tv))
+	return OK;
 
     ga_init2(&type_list, sizeof(type_T *), 10);
 
@@ -2371,7 +2391,8 @@ get_item_type(type_T *type)
 	    return type->tt_args[0];
     }
 
-    return type->tt_member;
+    // For "any" the item type is not known.
+    return type->tt_member == NULL ? &t_any : type->tt_member;
 }
 
 /*
@@ -2720,13 +2741,16 @@ type_name_func(type_T *type, char **tofree)
 	STRCPY((char *)ga.ga_data + ga.ga_len, ")");
     else
     {
-	char *ret_free;
+	char *ret_free = NULL;
 	char *ret_name = type_name(type->tt_member, &ret_free);
 	int  len;
 
 	len = (int)STRLEN(ret_name) + 4;
 	if (ga_grow(&ga, len) == FAIL)
+	{
+	    vim_free(ret_free);
 	    goto failed;
+	}
 	STRCPY((char *)ga.ga_data + ga.ga_len, "): ");
 	STRCPY((char *)ga.ga_data + ga.ga_len + 3, ret_name);
 	vim_free(ret_free);

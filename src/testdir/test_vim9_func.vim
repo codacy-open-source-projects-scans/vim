@@ -2,6 +2,7 @@
 
 import './util/vim9.vim' as v9
 source util/screendump.vim
+source util/shared.vim
 
 func Test_def_basic()
   def SomeFunc(): string
@@ -389,6 +390,12 @@ def Test_endfunc_enddef()
     enddef there
   END
   v9.CheckScriptFailure(lines, 'E1173: Text found after enddef: there', 6)
+
+  lines =<< trim END
+    def ShortEnddef()
+    endd
+  END
+  v9.CheckScriptFailure(lines, 'E1065: Command cannot be shortened: endd', 2)
 enddef
 
 def Test_missing_endfunc_enddef()
@@ -3135,6 +3142,46 @@ def Test_closure_using_argument()
       assert_equal([3, 4, 5], Test(Inc))
   END
   v9.CheckScriptSuccess(lines)
+
+  # assign to an element of the outer function's argument
+  lines =<< trim END
+      vim9script
+      def MakeSetter(arg: dict<any>): func()
+        return () => {
+          arg.key = 1
+        }
+      enddef
+      def Run()
+        var Set = MakeSetter({})
+        Set()
+      enddef
+      Run()
+
+      var d: dict<any> = {}
+      MakeSetter(d)()
+      assert_equal({key: 1}, d)
+
+      def MakeListSetter(arg: list<number>): func()
+        return () => {
+          arg[0] = 2
+        }
+      enddef
+      var l = [0]
+      MakeListSetter(l)()
+      assert_equal([2], l)
+
+      def MakeNestedSetter(arg: dict<any>): func(): func()
+        return () => {
+          return () => {
+            arg.key = 3
+          }
+        }
+      enddef
+      var nd: dict<any> = {}
+      MakeNestedSetter(nd)()()
+      assert_equal({key: 3}, nd)
+  END
+  v9.CheckScriptSuccess(lines)
 enddef
 
 def s:MakeGetAndAppendRefs()
@@ -5037,6 +5084,29 @@ def Test_void_method_chain()
     TestFunc()
   END
   v9.CheckScriptFailure(lines, 'E1186: Expression does not result in a value: bufload(')
+enddef
+
+def Test_term_wait_in_job_exit_cb()
+  CheckUnix
+  CheckFeature terminal
+
+  var cmd = g:GetVimCommand()
+
+  var lines =<< eval trim END
+      var buf: number = term_start(["{cmd}", "+q"], {{}})
+
+      var job: job = term_getjob(buf)
+
+      job_setoptions(job, {{
+      exit_cb: (_, _) => {{
+        term_wait(buf)
+          }}
+      }})
+  END
+
+  # This shouldn't cause an ASAN error immediately, but will result in a use
+  # after free when Vim exits.
+  v9.CheckDefSuccess(lines)
 enddef
 
 " vim: ts=8 sw=2 sts=2 expandtab tw=80 fdm=marker

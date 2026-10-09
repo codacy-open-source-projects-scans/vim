@@ -958,6 +958,7 @@ cmdline_wildchar_complete(
     int		cmdpos_before;
     int		options = WILD_NO_BEEP;
     int		wim_noselect = p_wmnu && (wim_flags[0] & WIM_NOSELECT);
+    int		wim_noinsert = p_wmnu && (wim_flags[0] & WIM_NOINSERT);
 
     if (wim_flags[wim_index] & WIM_BUFLASTUSED)
 	options |= WILD_BUFLASTUSED;
@@ -968,7 +969,8 @@ cmdline_wildchar_complete(
 		&& !*did_wild_list
 		&& (wim_flags[wim_index] & WIM_LIST))
 	{
-	    (void)showmatches(xp, FALSE, TRUE, wim_noselect);
+	    (void)showmatches(xp, FALSE, TRUE,
+		    p_wmnu ? wim_flags[wim_index] : 0);
 	    redrawcmd();
 	    *did_wild_list = TRUE;
 	}
@@ -1004,8 +1006,10 @@ cmdline_wildchar_complete(
 	    res = nextwild(xp, WILD_LONGEST, options, escape);
 	else
 	{
-	    if (wim_noselect || wim_list)
+	    if (wim_noselect || (wim_list && !wim_full))
 		options |= WILD_NOSELECT;
+	    if (wim_noinsert)
+		options |= WILD_NOINSERT;
 	    res = nextwild(xp, WILD_EXPAND_KEEP, options, escape);
 	}
 
@@ -1028,26 +1032,31 @@ cmdline_wildchar_complete(
 	}
 
 	// Display matches
-	if (res == OK && xp->xp_numfiles > (wim_noselect ? 0 : 1))
+	if (res == OK && xp->xp_numfiles > ((wim_noselect || wim_noinsert) ? 0 : 1))
 	{
 	    if (wim_longest)
 	    {
 		int found_longest_prefix = (ccline.cmdpos != cmdpos_before);
-		if (wim_list || (p_wmnu && wim_full))
-		    (void)showmatches(xp, p_wmnu, wim_list, TRUE);
+		int show_menu = p_wmnu && wim_full;
+
+		if (wim_list || show_menu)
+		    (void)showmatches(xp, show_menu, wim_list, WIM_NOSELECT);
 		else if (!found_longest_prefix)
 		{
 		    int wim_list_next = (wim_flags[1] & WIM_LIST);
 		    int wim_full_next = (wim_flags[1] & WIM_FULL);
 		    int wim_noselect_next = (wim_flags[1] & WIM_NOSELECT);
+		    int wim_noinsert_next = (wim_flags[1] & WIM_NOINSERT);
 		    if (wim_list_next || (p_wmnu && (wim_full_next
-				    || wim_noselect_next)))
+				    || wim_noselect_next || wim_noinsert_next)))
 		    {
-			if (wim_full_next && !wim_noselect_next)
+			if (wim_full_next && !wim_noselect_next && !wim_noinsert_next)
 			    nextwild(xp, WILD_NEXT, options, escape);
 			else
-			    (void)showmatches(xp, p_wmnu, wim_list_next,
-				    wim_noselect_next);
+			    (void)showmatches(xp, p_wmnu && (wim_noselect_next
+					|| wim_noinsert_next), wim_list_next,
+				    p_wmnu ? wim_flags[1] : 0);
+
 			if (wim_list_next)
 			    *did_wild_list = TRUE;
 		    }
@@ -1055,8 +1064,12 @@ cmdline_wildchar_complete(
 	    }
 	    else
 	    {
-		if (wim_list || (p_wmnu && (wim_full || wim_noselect)))
-		    (void)showmatches(xp, p_wmnu, wim_list, wim_noselect);
+		int show_menu = p_wmnu && (wim_full || wim_noselect
+							    || wim_noinsert);
+
+		if (wim_list || show_menu)
+		    (void)showmatches(xp, show_menu, wim_list,
+			    p_wmnu ? wim_flags[0] : 0);
 		else
 		    vim_beep(BO_WILD);
 	    }
@@ -2056,12 +2069,18 @@ getcmdline_int(
 	// navigating the wild menu (i.e. the key is not 'wildchar' or
 	// 'wildcharm' or Ctrl-N or Ctrl-P or Ctrl-A or Ctrl-L).
 	// If the popup menu is displayed, then PageDown and PageUp keys are
-	// also used to navigate the menu.
+	// also used to navigate the menu, the mouse scroll wheel keys scroll
+	// the info popup, and CTRL-SHIFT-<Up>/<Down> scroll it with the
+	// keyboard.
 	end_wildmenu = (!key_is_wc
 		&& c != Ctrl_N && c != Ctrl_P && c != Ctrl_A && c != Ctrl_L);
 	end_wildmenu = end_wildmenu && (!cmdline_pum_active() ||
 			    (c != K_PAGEDOWN && c != K_PAGEUP
-			     && c != K_KPAGEDOWN && c != K_KPAGEUP));
+			     && c != K_KPAGEDOWN && c != K_KPAGEUP
+			     && c != K_MOUSEDOWN && c != K_MOUSEUP
+			     && c != K_MOUSELEFT && c != K_MOUSERIGHT
+			     && !((c == K_S_UP || c == K_S_DOWN)
+				 && (mod_mask & MOD_MASK_CTRL))));
 
 	// free expanded names when finished walking through matches
 	if (end_wildmenu)
@@ -2180,8 +2199,10 @@ getcmdline_int(
 			    || p_wmnu))
 		{
 		    // Trigger the popup menu when wildoptions=pum
-		    showmatches(&xpc, p_wmnu, wim_flags[wim_index] & WIM_LIST,
-			    wim_flags[0] & WIM_NOSELECT);
+		    int list = wim_flags[wim_index] & WIM_LIST;
+
+		    showmatches(&xpc, p_wmnu && !list, list,
+			    p_wmnu ? wim_flags[0] : 0);
 		}
 		if (nextwild(&xpc, WILD_PREV, 0, firstc != '@') == OK
 			&& nextwild(&xpc, WILD_PREV, 0, firstc != '@') == OK)
@@ -2296,7 +2317,7 @@ getcmdline_int(
 		goto cmdline_not_changed;
 
 	case Ctrl_D:
-		if (showmatches(&xpc, FALSE, TRUE, wim_flags[0] & WIM_NOSELECT)
+		if (showmatches(&xpc, FALSE, TRUE, p_wmnu ? wim_flags[0] : 0)
 			== EXPAND_NOTHING)
 		    break;	// Use ^D as normal char instead
 
@@ -2405,11 +2426,21 @@ getcmdline_int(
 		cmdline_left_right_mouse(c, &ignore_drag_release);
 		goto cmdline_not_changed;
 
-	// Mouse scroll wheel: ignored here
+	// Mouse scroll wheel: scroll the completion info popup when the mouse
+	// is on top of it, otherwise ignored here.
 	case K_MOUSEDOWN:
 	case K_MOUSEUP:
 	case K_MOUSELEFT:
 	case K_MOUSERIGHT:
+#ifdef FEAT_PROP_POPUP
+		if (cmdline_pum_active())
+		    cmdline_mousescroll(c == K_MOUSEDOWN ? MSCR_DOWN
+				      : c == K_MOUSEUP ? MSCR_UP
+				      : c == K_MOUSELEFT ? MSCR_LEFT
+				      : MSCR_RIGHT);
+#endif
+		goto cmdline_not_changed;
+
 	// Alternate buttons ignored here
 	case K_X1MOUSE:
 	case K_X1DRAG:
@@ -2497,6 +2528,15 @@ getcmdline_int(
 
 	case Ctrl_N:	    // next match
 	case Ctrl_P:	    // previous match
+#ifdef FEAT_PROP_POPUP
+		// CTRL-SHIFT-P/N scroll the info popup one line.
+		if (cmdline_pum_active() && (mod_mask & MOD_MASK_SHIFT))
+		{
+		    if (popup_scroll_info(c == Ctrl_P ? -1 : 1, false))
+			cmdline_pum_display();
+		    goto cmdline_not_changed;
+		}
+#endif
 		if (xpc.xp_numfiles > 0)
 		{
 		    wild_type = (c == Ctrl_P) ? WILD_PREV : WILD_NEXT;
@@ -2513,6 +2553,27 @@ getcmdline_int(
 	case K_KPAGEUP:
 	case K_PAGEDOWN:
 	case K_KPAGEDOWN:
+#ifdef FEAT_PROP_POPUP
+		// CTRL-SHIFT-<Up>/<Down> scroll the info popup a line,
+		// CTRL-SHIFT-<PageUp>/<PageDown> a page.  Shift is folded into
+		// K_S_UP/K_S_DOWN but stays in mod_mask for the Page keys.
+		if (cmdline_pum_active()
+			&& ((c == K_S_UP || c == K_S_DOWN)
+			    ? (mod_mask & MOD_MASK_CTRL)
+			    : ((c == K_PAGEUP || c == K_KPAGEUP
+				    || c == K_PAGEDOWN || c == K_KPAGEDOWN)
+				&& (mod_mask & MOD_MASK_CTRL)
+				&& (mod_mask & MOD_MASK_SHIFT))))
+		{
+		    int	up = c == K_S_UP || c == K_PAGEUP
+							|| c == K_KPAGEUP;
+
+		    if (popup_scroll_info(up ? -1 : 1,
+					     c != K_S_UP && c != K_S_DOWN))
+			cmdline_pum_display();
+		    goto cmdline_not_changed;
+		}
+#endif
 		if (cmdline_pum_active()
 			&& (c == K_PAGEUP || c == K_PAGEDOWN ||
 			    c == K_KPAGEUP || c == K_KPAGEDOWN))
@@ -2688,7 +2749,17 @@ cmdline_changed:
 		&& (ccline.cmdpos != prev_cmdpos
 		    || (prev_cmdbuff != NULL &&
 			STRCMP(prev_cmdbuff, ccline.cmdbuff) != 0)))
+	{
 	    trigger_cmd_autocmd(cmdline_type, EVENT_CMDLINECHANGED);
+#ifdef FEAT_PROP_POPUP
+	    // Show popup updates from the autocmd without a manual :redraw.
+	    if (popup_need_redraw())
+	    {
+		update_screen(0);
+		redrawcmd();
+	    }
+#endif
+	}
 
 	// Trigger CursorMovedC autocommands.
 	if (ccline.cmdpos != prev_cmdpos)
@@ -2900,6 +2971,8 @@ check_opt_wim(void)
 	    new_wim_flags[idx] |= WIM_BUFLASTUSED;
 	else if (i == 8 && STRNCMP(p, "noselect", 8) == 0)
 	    new_wim_flags[idx] |= WIM_NOSELECT;
+	else if (i == 8 && STRNCMP(p, "noinsert", 8) == 0)
+	    new_wim_flags[idx] |= WIM_NOINSERT;
 	else
 	    return FAIL;
 	p += i;
@@ -4112,6 +4185,8 @@ redrawcmd(void)
 
     sb_text_restart_cmdline();
     msg_start();
+    // Reset lines_left so a wrapped cmdline isn't truncated by msg_no_more.
+    msg_starthere();
     redrawcmdprompt();
 
     // Don't use more prompt, truncate the cmdline if it doesn't fit.

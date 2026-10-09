@@ -1,4 +1,4 @@
-/* buffer.c */
+// buffer.c
 int get_highest_fnum(void);
 void buffer_ensure_loaded(buf_T *buf);
 int open_buffer(int read_stdin, exarg_T *eap, int flags_arg);
@@ -50,8 +50,8 @@ void maketitle(void);
 void resettitle(void);
 void free_titles(void);
 int build_stl_str_hl(win_T *wp, char_u *out, size_t outlen, char_u *fmt, char_u *opt_name, int opt_scope, int fillchar, int maxwidth, stl_hlrec_T **hltab, stl_hlrec_T **tabtab, stl_clickrec_T **clicktab);
-int build_stl_str_hl_mline(win_T *wp, char_u *out, size_t outlen, char_u **fmt, char_u *opt_name, int opt_scope, int fillchar, int maxwidth, stl_hlrec_T **hltab, stl_hlrec_T **tabtab, stl_clickrec_T **clicktab);
-int build_stl_str_hl_mline_nl(win_T *wp, char_u *out, size_t outlen, char_u **fmt, char_u *opt_name, int opt_scope, int fillchar, int maxwidth, stl_hlrec_T **hltab, stl_hlrec_T **tabtab, stl_clickrec_T **clicktab);
+int build_stl_str_hl_mline(win_T *wp, char_u *out, size_t outlen, char_u **fmt, char_u *opt_name, int opt_scope, int fillchar, int maxwidth, stl_hlrec_T **hltab, stl_hlrec_T **tabtab, stl_clickrec_T **clicktab, int *carry_hl);
+int build_stl_str_hl_mline_nl(win_T *wp, char_u *out, size_t outlen, char_u **fmt, char_u *opt_name, int opt_scope, int fillchar, int maxwidth, stl_hlrec_T **hltab, stl_hlrec_T **tabtab, stl_clickrec_T **clicktab, int *carry_hl);
 int get_stl_rendered_height(win_T *wp, char_u *fmt, char_u *opt_name, int opt_scope);
 int get_rel_pos(win_T *wp, char_u *buf, int buflen);
 char_u *fix_fname(char_u *fname);
@@ -74,4 +74,4 @@ char_u *buf_get_fname(buf_T *buf);
 void set_buflisted(int on);
 int buf_contents_changed(buf_T *buf);
 void wipe_buffer(buf_T *buf, int aucmd);
-/* vim: set ft=c : */
+// vim: ft=c

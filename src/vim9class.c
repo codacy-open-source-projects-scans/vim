@@ -461,13 +461,14 @@ extends_check_dup_members(
     {
 	class_T	    *p_cl = extends_cl;
 	ocmember_T  *c_m = members + c_i;
-	char_u	    *pstr = (*c_m->ocm_name.string == '_')
-				    ? c_m->ocm_name.string + 1 : c_m->ocm_name.string;
+	bool	    c_protected = (*c_m->ocm_name.string == '_');
+	char_u	    *pstr = c_m->ocm_name.string + c_protected;
 
 	// Check in all the parent classes in the lineage
 	while (p_cl != NULL)
 	{
 	    int p_member_count = p_cl->class_obj_member_count;
+
 	    if (p_member_count == 0)
 	    {
 		p_cl = p_cl->class_extends;
@@ -478,12 +479,17 @@ extends_check_dup_members(
 	    // Compare against all the members in the parent class
 	    for (int p_i = 0; p_i < p_member_count; p_i++)
 	    {
-		ocmember_T	*p_m = p_members + p_i;
-		char_u	*qstr = (*p_m->ocm_name.string == '_')
-		    ? p_m->ocm_name.string + 1 : p_m->ocm_name.string;
+		ocmember_T  *p_m = p_members + p_i;
+		bool	    p_protected = (*p_m->ocm_name.string == '_');
+		char_u	    *qstr = p_m->ocm_name.string + p_protected;
 		if (STRCMP(pstr, qstr) == 0)
 		{
-		    semsg(_(e_duplicate_variable_str), c_m->ocm_name.string);
+		    if (c_protected != p_protected)
+			semsg(_(e_public_and_protected_member_have_same_name_str_str),
+				pstr, pstr);
+		    else
+			semsg(_(e_duplicate_variable_str),
+				c_m->ocm_name.string);
 		    return FALSE;
 		}
 	    }
@@ -1040,18 +1046,18 @@ is_duplicate_variable(
     char_u	*varname,
     char_u	*varname_end)
 {
-    string_T	pstr = {varname, (size_t)(varname_end - varname)};  // Note: the .string field may
-								    // point to a string longer
-								    // than the .length field.
-								    // So we need to use STRNCMP()
-								    // to compare it.
+    // Note: the .string field may point to a string longer than the .length
+    // field.  So we need to use STRNCMP() to compare it.
+    string_T	pstr = {varname, (size_t)(varname_end - varname)};
     int		dup = FALSE;
+    bool	p_protected = false;
 
     // Step over a leading '_'.
     if (*pstr.string == '_')
     {
 	pstr.string++;
 	pstr.length--;
+	p_protected = true;
     }
 
     // loop == 1: class variables, loop == 2: object variables
@@ -1062,12 +1068,14 @@ is_duplicate_variable(
 	{
 	    ocmember_T *m = ((ocmember_T *)vgap->ga_data) + i;
 	    string_T	qstr = {m->ocm_name.string, m->ocm_name.length};
+	    bool	q_protected = false;
 
 	    // Step over a leading '_'.
 	    if (*qstr.string == '_')
 	    {
 		qstr.string++;
 		qstr.length--;
+		q_protected = true;
 	    }
 
 	    if (pstr.length == qstr.length
@@ -1076,7 +1084,11 @@ is_duplicate_variable(
 		char_u	save_c = *varname_end;
 
 		*varname_end = NUL;
-		semsg(_(e_duplicate_variable_str), varname);
+		if (p_protected != q_protected)
+		    semsg(_(e_public_and_protected_member_have_same_name_str_str),
+					       pstr.string, pstr.string);
+		else
+		    semsg(_(e_duplicate_variable_str), varname);
 		*varname_end = save_c;
 		dup = TRUE;
 		break;
@@ -1416,7 +1428,8 @@ add_class_members(class_T *cl, exarg_T *eap, garray_T *type_list_gap)
     {
 	ocmember_T	*m = &cl->class_class_members[i];
 	typval_T	*tv = &cl->class_members_tv[i];
-	if (m->ocm_init != NULL)
+	// With ":source ++dryrun" the value is not needed, only the type.
+	if (m->ocm_init != NULL && !source_dryrun)
 	{
 	    sctx_T	save_current_sctx = current_sctx;
 
@@ -1922,6 +1935,35 @@ enum_set_internal_obj_vars(class_T *en, object_T *enval)
 }
 
 /*
+ * Read the body up to ":endclass", ":endenum" or ":endinterface" and throw it
+ * away.  Used while skipping.
+ */
+    static void
+skip_class_body(exarg_T *eap)
+{
+    for (;;)
+    {
+	char_u	*theline = eap->ea_getline(':', eap->cookie, 0,
+							  GETLINE_CONCAT_ALL);
+	if (theline == NULL)
+	    break;
+
+	char_u	*p = theline;
+	int	found;
+
+	// skip ':' and blanks
+	for (; VIM_ISWHITE(*p) || *p == ':'; ++p)
+	    ;
+	found = checkforcmd(&p, "endclass", 4)
+			|| checkforcmd(&p, "endenum", 4)
+			|| checkforcmd(&p, "endinterface", 5);
+	vim_free(theline);
+	if (found)
+	    break;
+    }
+}
+
+/*
  * Handle ":class" and ":abstract class" up to ":endclass".
  * Handle ":enum" up to ":endenum".
  * Handle ":interface" up to ":endinterface".
@@ -1936,6 +1978,12 @@ ex_class(exarg_T *eap)
     int		is_interface;
     long	start_lnum = SOURCING_LNUM;
     char_u	*arg = eap->arg;
+
+    if (eap->skip)
+    {
+	skip_class_body(eap);
+	return;
+    }
 
     if (is_abstract)
     {
@@ -2123,6 +2171,8 @@ early_ret:
 	cl->class_flags = CLASS_INTERFACE;
     else if (is_abstract)
 	cl->class_flags = CLASS_ABSTRACT;
+    if (source_dryrun)
+	cl->class_flags |= CLASS_DRYRUN;
 
     cl->class_refcount = 1;
     cl->class_name.length = (size_t)(name_end - name_start);
@@ -2218,10 +2268,14 @@ early_ret:
 	    fullen = 12;
 	}
 
+	// skip ':' and blanks
+	for (; VIM_ISWHITE(*p) || *p == ':'; ++p)
+	    ;
+	char_u *cmd_start = p;
 	if (checkforcmd(&p, end_name, shortlen))
 	{
-	    if (STRNCMP(line, end_name, fullen) != 0)
-		semsg(_(e_command_cannot_be_shortened_str), line);
+	    if (STRNCMP(cmd_start, end_name, fullen) != 0)
+		semsg(_(e_command_cannot_be_shortened_str), cmd_start);
 	    else if (*p == '|' || !ends_excmd2(line, p))
 		semsg(_(e_trailing_characters_str), p);
 	    else
@@ -3825,6 +3879,11 @@ can_free_enum(class_T *cl)
 	    // If all of those members are no longer referenced, then the enum
 	    // may be freed.
 	    return TRUE;
+
+	// With ":source ++dryrun" the enum values were not created.
+	if (tv->v_type == VAR_OBJECT ? tv->vval.v_object == NULL
+						   : tv->vval.v_list == NULL)
+	    continue;
 
 	if (tv->v_type == VAR_LIST
 		&& tv->vval.v_list->lv_type->tt_member->tt_type == VAR_OBJECT

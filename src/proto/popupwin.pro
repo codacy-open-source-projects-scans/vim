@@ -1,4 +1,4 @@
-/* popupwin.c */
+// popupwin.c
 int popup_on_border(win_T *wp, int row, int col);
 int popup_close_if_on_X(win_T *wp, int row, int col);
 void popup_start_drag(win_T *wp, int row, int col);
@@ -64,6 +64,7 @@ int set_ref_in_popups(int copyID);
 int popup_is_popup(win_T *wp);
 win_T *popup_find_preview_window(void);
 win_T *popup_find_info_window(void);
+bool popup_scroll_info(int dir, bool by_page);
 void f_popup_findecho(typval_T *argvars, typval_T *rettv);
 void f_popup_findinfo(typval_T *argvars, typval_T *rettv);
 void f_popup_findpreview(typval_T *argvars, typval_T *rettv);
@@ -81,4 +82,4 @@ void end_echowindow(void);
 int popup_win_closed(win_T *win);
 void popup_set_title(win_T *wp);
 void popup_update_preview_title(void);
-/* vim: set ft=c : */
+// vim: ft=c
